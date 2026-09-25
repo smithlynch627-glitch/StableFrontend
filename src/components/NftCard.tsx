@@ -6,9 +6,10 @@ import { useMoney } from '../lib/currency';
 import type { Token } from '../lib/types';
 import { TokenArt } from './Art';
 import { IconCheck } from './Icons';
+import { RarityRank } from './Rarity';
 import { useTrade } from './trade';
 
-type ColLike = { address: string; slug: string; art_style: 'cow' | 'tile' | string; name?: string; tradable?: boolean };
+type ColLike = { address: string; slug: string; art_style: 'cow' | 'tile' | string; name?: string; tradable?: boolean; total_supply?: number };
 
 export function NftCard({
   token, collection, sweeping = false, selected = false, onToggle, onQuickSelect, showCollection = false,
@@ -45,7 +46,7 @@ export function NftCard({
     >
       <div className="nft-card__media">
         <TokenArt collection={collection} token={token} />
-        {token.rarity_rank && !sweeping && <span className="nft-card__rank">{t('common.rank', { rank: token.rarity_rank.toLocaleString() })}</span>}
+        {token.rarity_rank && !sweeping && collection.total_supply ? <RarityRank rank={token.rarity_rank} of={collection.total_supply} variant="media" className="nft-card__rank" /> : null}
         {sweeping && selectable && <span className="nft-card__check">{selected && <IconCheck size={14} />}</span>}
         {!sweeping && onQuickSelect && listed && !mine && collection.tradable !== false && (
           <button type="button" className="nft-card__select" aria-label={t('col.select')} title={t('col.select')} onClick={(e) => { e.stopPropagation(); onQuickSelect(); }}>

@@ -89,7 +89,7 @@ function Items({ addr, isMe }: { addr: string; isMe: boolean }) {
           <NftCard
             key={`${tok.collection}:${tok.token_id}`}
             token={tok}
-            collection={{ address: tok.collection, slug: tok.collection_slug!, art_style: tok.art_style!, name: tok.collection_name, tradable: tok.tradable }}
+            collection={{ address: tok.collection, slug: tok.collection_slug!, art_style: tok.art_style!, name: tok.collection_name, tradable: tok.tradable, total_supply: tok.collection_supply }}
             showCollection
           />
         ))}

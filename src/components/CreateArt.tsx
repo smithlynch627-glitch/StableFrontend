@@ -242,8 +242,8 @@ type CheckItem = {
   rawImage?: string | null; imageIssue?: 'raw_cid_path' | null; imageOk?: boolean; imageError?: string | null;
 };
 
-/** Reads 1.json, 2.json, 3.json from the base URI exactly as the contract will, and shows what collectors will see. */
-export function MetadataCheck({ baseUri, onResult, expected }: { baseUri: string; onResult: (ok: boolean) => void; expected?: number }) {
+/** For https:// and ar:// folders: reads 1.json, 2.json, 3.json and the last one, as the contract will. (IPFS folders use MetadataCheck.) */
+export function LegacyMetadataCheck({ baseUri, onResult, expected }: { baseUri: string; onResult: (ok: boolean) => void; expected?: number }) {
   const { t } = useI18n();
   const [items, setItems] = useState<CheckItem[] | null>(null);
   const [warnings, setWarnings] = useState<string[]>([]);

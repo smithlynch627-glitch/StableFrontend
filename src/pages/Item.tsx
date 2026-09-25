@@ -6,20 +6,22 @@ import { useAccount } from 'wagmi';
 import { useI18n } from '../i18n';
 import { api } from '../lib/api';
 import { useAppConfig } from '../lib/appConfig';
-import { dateTime, eth, pct, short, shortId, timeAgo, tokenLabel } from '../lib/format';
+import { dateTime, eth, short, shortId, timeAgo, tokenLabel } from '../lib/format';
 import { usdText, useMoney } from '../lib/currency';
 import type { Activity, Collection, Order, Token } from '../lib/types';
 import { Avatar, CollectionAvatar, TokenArt, fixImageUrl, isVideoUrl } from '../components/Art';
-import { IconChevron, IconCopy, IconExternal, IconShare } from '../components/Icons';
+import { IconChevron, IconCopy, IconExternal, IconShare, IconTag } from '../components/Icons';
 import { SocialIcon } from '../components/Social';
 import { useTrade } from '../components/trade';
 import { NftCard } from '../components/NftCard';
 import { ChartCard, ScatterChart } from '../components/Charts';
-import { Badge, CopyButton, CountdownLabel, EmptyState, Skeleton, useToast } from '../components/ui';
+import { RarityPanel, RarityRank, TraitShare } from '../components/Rarity';
+import { Badge, CopyButton, CountdownLabel, EmptyState, Skeleton, Tabs, useToast } from '../components/ui';
 import { ActivityTab } from './Collection';
 import { BackButton } from '../components/BackButton';
 
 const toHttp = (u: string) => (u.startsWith('ipfs://') ? `https://ipfs.io/ipfs/${u.slice(7)}` : u);
+type InfoTab = 'offers' | 'history' | 'details';
 
 export default function ItemPage() {
   const { slug = '', id = '' } = useParams();
@@ -30,6 +32,7 @@ export default function ItemPage() {
   const { money, usd, isUsd, rate } = useMoney();
   const { address } = useAccount();
   const [zoom, setZoom] = useState(false);
+  const [tab, setTab] = useState<InfoTab>('offers');
   const q = useQuery({
     queryKey: ['token', slug.toLowerCase(), id],
     queryFn: () => api.get<{ token: Token; collection: Collection; offers: Order[] }>(`/tokens/${slug}/${id}`),
@@ -55,9 +58,11 @@ export default function ItemPage() {
 
   if (q.isLoading)
     return (
-      <div className="page container item-layout">
-        <Skeleton h={520} r={22} />
-        <div style={{ display: 'grid', gap: 14 }}><Skeleton h={40} w="70%" /><Skeleton h={180} r={14} /><Skeleton h={220} r={14} /></div>
+      <div className="page container item-v3">
+        <div className="item-v3__grid">
+          <Skeleton h={560} r={24} />
+          <div style={{ display: 'grid', gap: 14, alignContent: 'start' }}><Skeleton h={28} w="40%" /><Skeleton h={44} w="70%" /><Skeleton h={190} r={18} /><Skeleton h={160} r={18} /><Skeleton h={220} r={18} /></div>
+        </div>
       </div>
     );
   if (!q.data) return <div className="page container"><div className="back-row"><BackButton fallback={`/collection/${slug}`} /></div><EmptyState title={t('item.notFound')} action={<Link className="btn" to={`/collection/${slug}`}>{t('home.viewCollection')}</Link>} /></div>;
@@ -70,14 +75,17 @@ export default function ItemPage() {
     ? { hash: token.listing_hash!, kind: 'listing', token_id: token.token_id, maker: token.listing_maker!, price_wei: token.listing_price_wei!, currency: 'ETH', end_time: token.listing_end_time! }
     : null;
   const total = c.total_supply || 1;
+  const rankOf = token.rarity_of || total;
   const link = `${window.location.origin}/item/${c.slug}/${token.token_id}`;
   const title = tokenLabel(token.name, token.token_id);
   const fmtV = (v: number) => (isUsd && rate ? usdText(v) : `${Number(v.toPrecision(3))} ETH`);
   const others = (more.data?.tokens ?? []).filter((x) => x.token_id !== token.token_id).slice(0, 8);
+  const traits = token.attributes ?? [];
   // Time window for the price chart: from a little before the first sale to now (at least 6 hours wide).
   const t1 = Date.now();
   const span = Math.max(points.length ? t1 - points[0].t : 7 * 86400e3, 6 * 3600e3);
   const t0 = (points.length ? points[0].t : t1 - span) - span * 0.08;
+  const traitLink = (type: string, value: string) => `/collection/${c.slug}?traits=${encodeURIComponent(JSON.stringify({ [type]: [value] }))}`;
 
   async function share() {
     if (navigator.share) await navigator.share({ title, url: link }).catch(() => undefined);
@@ -85,7 +93,7 @@ export default function ItemPage() {
   }
 
   return (
-    <div className="page container item-page">
+    <div className="page container item-v3">
       <div className="item-topbar">
         <nav className="crumbs" aria-label="Breadcrumb">
           <BackButton fallback={`/collection/${c.slug}`} />
@@ -101,144 +109,163 @@ export default function ItemPage() {
         </div>
       </div>
 
-      <div className="item-layout">
-        <button type="button" className="item-media" onClick={() => token.image_url && setZoom(true)} aria-label={title}>
-          <TokenArt collection={c} token={token} />
-          {token.rarity_rank && <span className="item-media__rank">{t('common.rank', { rank: token.rarity_rank.toLocaleString() })}</span>}
-        </button>
+      <div className="item-v3__grid">
+        {/* Left: only the artwork (sticky on wide screens), so nothing can ever scroll underneath it. */}
+        <div className="item-v3__media-col">
+          <div className="item-v3__media">
+            <button type="button" className="item-v3__art" onClick={() => token.image_url && setZoom(true)} aria-label={title}>
+              <TokenArt collection={c} token={token} />
+            </button>
+            {token.rarity_rank && <RarityRank rank={token.rarity_rank} of={rankOf} variant="media" className="item-v3__rank" />}
+          </div>
+        </div>
 
-        <div className="item-side">
-          <div className="item-head">
+        <div className="item-v3__info">
+          <header className="item-v3__head">
             <Link to={`/collection/${c.slug}`} className="item-head__col">
               <span className="item-head__avatar"><CollectionAvatar collection={c} /></span>
               <span className="strong">{c.name}</span><Badge official={c.is_official} verified={c.verified} />
             </Link>
-            <h1 className="h1 item-title" title={token.name || `#${token.token_id}`}>{title}</h1>
-            <div className="row-wrap small">
-              <Link to={`/profile/${token.owner}`} className="item-owner">
-                <Avatar address={token.owner} size={28} />
-                <span style={{ display: 'grid' }}>
+            <h1 className="item-v3__title" title={token.name || `#${token.token_id}`}>{title}</h1>
+            <div className="item-v3__meta">
+              <Link to={`/profile/${token.owner}`} className="item-v3__owner">
+                <Avatar address={token.owner} size={30} />
+                <span style={{ display: 'grid', lineHeight: 1.25 }}>
                   <span className="tiny muted">{t('common.owner')}</span>
                   <span className="strong">{mine ? t('common.you') : short(token.owner)}</span>
                 </span>
               </Link>
+              {token.rarity_rank && (
+                <span className="item-v3__fact">
+                  <span className="tiny muted">{t('rarity.rank')}</span>
+                  <RarityRank rank={token.rarity_rank} of={rankOf} variant="chip" />
+                </span>
+              )}
+              <span className="item-v3__fact">
+                <span className="tiny muted">{t('item.tokenId')}</span>
+                <span className="strong mono-num" title={token.token_id}>#{shortId(token.token_id)}</span>
+              </span>
             </div>
-          </div>
+          </header>
 
-          <div className="price-box">
-            <div className="price-box__top">
-              <div>
+          <section className="card-v3 price-v3">
+            <div className="price-v3__top">
+              <div style={{ minWidth: 0 }}>
                 <div className="small muted">{t('item.currentPrice')}</div>
-                <div className="price-box__value mono-num">{listed ? `${eth(token.listing_price_wei)} ETH` : t('common.notListed')}</div>
+                {listed ? (
+                  <div className="price-v3__value mono-num">{eth(token.listing_price_wei)} <span>ETH</span></div>
+                ) : (
+                  <div className="price-v3__value price-v3__value--muted">{t('common.notListed')}</div>
+                )}
                 {listed && usd(token.listing_price_wei) && <div className="small soft mono-num">≈ {usd(token.listing_price_wei)}</div>}
               </div>
               {listed && token.listing_end_time && <span className="pill pill--outline"><CountdownLabel k="item.endsIn" to={token.listing_end_time} /></span>}
             </div>
-            <div className="price-box__facts">
+            <div className="price-v3__facts">
               <span><span className="muted">{t('col.lastSale')}</span><strong className="mono-num">{token.last_sale_wei ? money(token.last_sale_wei) : '—'}</strong></span>
               <span><span className="muted">{t('common.bestOffer')}</span><strong className="mono-num">{offers[0] ? money(offers[0].price_wei, 'WETH') : '—'}</strong></span>
               <span><span className="muted">{t('common.floor')}</span><strong className="mono-num">{c.floor_wei ? `${eth(c.floor_wei)} ETH` : '—'}</strong></span>
             </div>
-            {c.tradable === false ? <div className="notice">{t('col.notTradable')}</div> : <div className="row" style={{ flexWrap: 'wrap' }}>
-              {mine ? (
-                <>
-                  <button className="btn btn--lg" style={{ flex: 1 }} onClick={() => trade.list(c.address, token)}>{listed ? t('item.editPrice') : t('item.list')}</button>
-                  {listingOrder && <button className="btn btn--lg btn--outline" style={{ flex: 1 }} onClick={() => trade.cancel(listingOrder, c.address)}>{t('item.cancelListing')}</button>}
-                </>
-              ) : (
-                <>
-                  {listed && <button className="btn btn--lg" style={{ flex: 1 }} onClick={() => trade.buy(c.address, [token])}>{t('col.buyNow')}</button>}
-                  <button className={`btn btn--lg ${listed ? 'btn--outline' : ''}`} style={{ flex: 1 }} onClick={() => trade.offer(c.address, token)}>{t('item.makeOffer')}</button>
-                </>
-              )}
-            </div>}
-          </div>
-
-          <ChartCard
-            title={t('an.priceHistory')}
-            sub={isUsd ? 'USD' : 'ETH'}
-            empty={!points.length}
-            emptyText={t('item.noSales')}
-            tableLabel={t('an.table')}
-            chartLabel={t('an.chart')}
-            table={{ head: [t('an.time'), t('common.price'), t('common.to')], rows: [...points].reverse().map((p) => [dateTime(new Date(p.t), lang), fmtV(p.v), short(p.label)]) }}
-          >
-            <ScatterChart data={points} height={180} t0={t0} t1={t1} fmt={fmtV}
-              fmtT={(ts) => new Date(ts).toLocaleString(lang === 'ko' ? 'ko-KR' : 'en-US', t1 - t0 < 2 * 86400e3 ? { hour: '2-digit', minute: '2-digit' } : { month: 'short', day: 'numeric' })}
-              tip={(p) => (<><strong>{fmtV(p.v)}</strong><span className="muted">{dateTime(new Date(p.t), lang)}</span></>)} />
-          </ChartCard>
-
-          <div className="panel">
-            <div className="panel__head">{t('item.offers')} <span className="muted small">{offers.length}</span></div>
-            {offers.length === 0 ? (
-              <div className="panel__body small muted">{t('item.noOffers')}</div>
-            ) : (
-              <div style={{ overflowX: 'auto' }}>
-                <table className="table">
-                  <thead><tr><th>{t('common.price')}</th><th>{t('common.from')}</th><th>{t('common.expires')}</th><th /></tr></thead>
-                  <tbody>
-                    {offers.map((o) => {
-                      const byMe = me && o.maker === me;
-                      return (
-                        <tr key={o.hash}>
-                          <td>
-                            <div className="strong mono-num">{money(o.price_wei, 'WETH')}</div>
-                            {o.kind === 'collection_offer' && <div className="tiny muted">{t('col.collectionOffer')}</div>}
-                          </td>
-                          <td><Link className="link" to={`/profile/${o.maker}`}>{byMe ? t('common.you') : short(o.maker)}</Link></td>
-                          <td className="muted">{timeAgo(o.end_time, lang)}</td>
-                          <td style={{ textAlign: 'right' }}>
-                            {byMe ? (
-                              <button className="btn btn--outline btn--sm" onClick={() => trade.cancel(o, c.address)}>{t('item.cancelOffer')}</button>
-                            ) : mine ? (
-                              <button className="btn btn--sm" onClick={() => trade.accept(o, c.address, token)}>{t('item.accept')}</button>
-                            ) : null}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+            {c.tradable === false ? <div className="notice">{t('col.notTradable')}</div> : (
+              <div className="price-v3__actions">
+                {mine ? (
+                  <>
+                    <button className="btn btn--lg" onClick={() => trade.list(c.address, token)}><IconTag size={17} />{listed ? t('item.editPrice') : t('item.list')}</button>
+                    {listingOrder && <button className="btn btn--lg btn--outline" onClick={() => trade.cancel(listingOrder, c.address)}>{t('item.cancelListing')}</button>}
+                  </>
+                ) : (
+                  <>
+                    {listed && <button className="btn btn--lg" onClick={() => trade.buy(c.address, [token])}>{t('col.buyNow')}</button>}
+                    <button className={`btn btn--lg ${listed ? 'btn--outline' : ''}`} onClick={() => trade.offer(c.address, token)}>{t('item.makeOffer')}</button>
+                  </>
+                )}
               </div>
             )}
-          </div>
-        </div>
+          </section>
 
-        <div className="item-attrs">
-          {token.attributes?.length > 0 && (
-            <div className="panel">
-              <div className="panel__head">{t('item.traits')} <span className="muted small">{token.attributes.length}</span></div>
-              <div className="panel__body traits-grid">
-                {token.attributes.map((a) => {
-                  const share = a.count !== undefined ? pct(a.count, total) : null;
-                  return (
-                    <Link key={a.trait_type} className="trait" to={`/collection/${c.slug}`}>
-                      <span className="trait__type">{a.trait_type}</span>
-                      <span className="trait__value">{String(a.value)}</span>
-                      {share !== null && (
-                        <>
-                          <span className="trait__bar"><span style={{ width: `${Math.min(100, Math.max(3, share))}%` }} /></span>
-                          <span className="trait__pct">{t('item.traitPct', { pct: share })}</span>
-                        </>
-                      )}
-                    </Link>
-                  );
-                })}
+          <RarityPanel rank={token.rarity_rank} of={rankOf} />
+
+          {traits.length > 0 && (
+            <section className="card-v3">
+              <header className="card-v3__head">
+                <h2 className="card-v3__title">{t('item.traits')} <span className="muted small">{traits.length}</span></h2>
+              </header>
+              <div className="traits-v3">
+                {traits.map((a, i) => (
+                  <Link key={`${a.trait_type}-${i}`} className="trait-v3" to={traitLink(a.trait_type, String(a.value))} title={t('item.traitFilter')}>
+                    <span className="trait-v3__type">{a.trait_type}</span>
+                    <span className="trait-v3__value">{String(a.value)}</span>
+                    {a.count !== undefined && a.count > 0 && <TraitShare count={a.count} total={total} />}
+                  </Link>
+                ))}
               </div>
-            </div>
+            </section>
           )}
-          <div className="panel">
-            <div className="panel__head">{t('item.details')}</div>
-            <dl className="panel__body kv" style={{ margin: 0 }}>
-              <div><dt>{t('item.contract')}</dt><dd className="row" style={{ gap: 4, justifyContent: 'flex-end' }}><a className="link" href={`${cfg.explorerUrl}/token/${c.address}`} target="_blank" rel="noreferrer">{short(c.address)}</a><CopyButton value={c.address} /></dd></div>
-              <div><dt>{t('item.tokenId')}</dt><dd className="row" style={{ gap: 6, justifyContent: 'flex-end' }}><span title={token.token_id}>{shortId(token.token_id)}</span>{token.token_id.length > 12 && <CopyButton value={token.token_id} />}</dd></div>
-              <div><dt>{t('item.standard')}</dt><dd>ERC-721</dd></div>
-              <div><dt>{t('item.chain')}</dt><dd>{cfg.network?.name || 'GIWA'}</dd></div>
-              <div><dt>{t('common.royalty')}</dt><dd>{c.royalty_bps / 100}%</dd></div>
-              {token.rarity_rank && <div><dt>{t('col.rarity')}</dt><dd>{t('item.rankOf', { rank: token.rarity_rank.toLocaleString(), total: total.toLocaleString() })}</dd></div>}
-              <div><dt>{t('common.explorer')}</dt><dd><a className="link row" style={{ gap: 4 }} href={`${cfg.explorerUrl}/token/${c.address}/instance/${token.token_id}`} target="_blank" rel="noreferrer">GIWA Explorer <IconExternal size={13} /></a></dd></div>
-            </dl>
-          </div>
+
+          <section className="card-v3 item-v3__tabs">
+            <Tabs<InfoTab>
+              value={tab}
+              onChange={setTab}
+              tabs={[
+                { id: 'offers', label: t('item.offers'), count: offers.length },
+                { id: 'history', label: t('an.priceHistory') },
+                { id: 'details', label: t('item.details') },
+              ]}
+            />
+            <div className="item-v3__tab">
+              {tab === 'offers' && (offers.length === 0 ? (
+                <div className="item-v3__empty small muted">{t('item.noOffers')}</div>
+              ) : (
+                <div className="offer-rows">
+                  {offers.map((o) => {
+                    const byMe = me && o.maker === me;
+                    return (
+                      <div className="offer-row" key={o.hash}>
+                        <div style={{ minWidth: 0 }}>
+                          <div className="strong mono-num">{money(o.price_wei, 'WETH')}</div>
+                          <div className="tiny muted">
+                            {o.kind === 'collection_offer' ? `${t('col.collectionOffer')} · ` : ''}
+                            <Link className="link" to={`/profile/${o.maker}`}>{byMe ? t('common.you') : short(o.maker)}</Link> · {timeAgo(o.end_time, lang)}
+                          </div>
+                        </div>
+                        {byMe ? (
+                          <button className="btn btn--outline btn--sm" onClick={() => trade.cancel(o, c.address)}>{t('item.cancelOffer')}</button>
+                        ) : mine ? (
+                          <button className="btn btn--sm" onClick={() => trade.accept(o, c.address, token)}>{t('item.accept')}</button>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+              ))}
+              {tab === 'history' && (
+                <ChartCard
+                  title={t('an.priceHistory')}
+                  sub={isUsd ? 'USD' : 'ETH'}
+                  empty={!points.length}
+                  emptyText={t('item.noSales')}
+                  tableLabel={t('an.table')}
+                  chartLabel={t('an.chart')}
+                  table={{ head: [t('an.time'), t('common.price'), t('common.to')], rows: [...points].reverse().map((p) => [dateTime(new Date(p.t), lang), fmtV(p.v), short(p.label)]) }}
+                >
+                  <ScatterChart data={points} height={200} t0={t0} t1={t1} fmt={fmtV}
+                    fmtT={(ts) => new Date(ts).toLocaleString(lang === 'ko' ? 'ko-KR' : 'en-US', t1 - t0 < 2 * 86400e3 ? { hour: '2-digit', minute: '2-digit' } : { month: 'short', day: 'numeric' })}
+                    tip={(p) => (<><strong>{fmtV(p.v)}</strong><span className="muted">{dateTime(new Date(p.t), lang)}</span></>)} />
+                </ChartCard>
+              )}
+              {tab === 'details' && (
+                <dl className="kv item-v3__kv">
+                  <div><dt>{t('item.contract')}</dt><dd className="row" style={{ gap: 4, justifyContent: 'flex-end' }}><a className="link" href={`${cfg.explorerUrl}/token/${c.address}`} target="_blank" rel="noreferrer">{short(c.address)}</a><CopyButton value={c.address} /></dd></div>
+                  <div><dt>{t('item.tokenId')}</dt><dd className="row" style={{ gap: 6, justifyContent: 'flex-end' }}><span title={token.token_id}>{shortId(token.token_id)}</span>{token.token_id.length > 12 && <CopyButton value={token.token_id} />}</dd></div>
+                  <div><dt>{t('item.standard')}</dt><dd>ERC-721</dd></div>
+                  <div><dt>{t('item.chain')}</dt><dd>{cfg.network?.name || 'GIWA'}</dd></div>
+                  <div><dt>{t('common.royalty')}</dt><dd>{c.royalty_bps / 100}%</dd></div>
+                  {token.rarity_rank && <div><dt>{t('col.rarity')}</dt><dd>{t('item.rankOf', { rank: token.rarity_rank.toLocaleString(), total: rankOf.toLocaleString() })}</dd></div>}
+                  <div><dt>{t('common.explorer')}</dt><dd><a className="link row" style={{ gap: 4 }} href={`${cfg.explorerUrl}/token/${c.address}/instance/${token.token_id}`} target="_blank" rel="noreferrer">GIWA Explorer <IconExternal size={13} /></a></dd></div>
+                </dl>
+              )}
+            </div>
+          </section>
         </div>
       </div>
 

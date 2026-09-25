@@ -14,7 +14,7 @@ import type { Collection, DropState } from '../lib/types';
 import { useAuthedApi, useTx } from '../lib/tx';
 import { CollectionAvatar } from '../components/Art';
 import { IpfsFolderUpload, PreRevealUpload } from '../components/IpfsUpload';
-import { MetadataCheck } from '../components/CreateArt';
+import { MetadataCheck } from '../components/MetadataCheck';
 import { MetadataGuide } from '../components/MetadataGuide';
 import { IconAlert } from '../components/Icons';
 import { ChangeList } from '../components/PhaseChanges';
@@ -231,6 +231,7 @@ function Metadata({ c, addr, s }: { c: Collection; addr: Address; s: S }) {
   const { t } = useI18n();
   const { busy, run } = useTx();
   const [uri, setUri] = useState('');
+  const [metaOk, setMetaOk] = useState(false);
   if (s.frozen) return <div className="notice notice--strong">{t('studio.frozen')}</div>;
   const validUri = /^(ipfs:\/\/|https:\/\/|ar:\/\/)/.test(uri.trim());
   return (
@@ -247,8 +248,8 @@ function Metadata({ c, addr, s }: { c: Collection; addr: Address; s: S }) {
         <MetadataGuide name={c.name} description={c.description || ''} supply={c.max_supply || s.maxSupply} />
         <IpfsFolderUpload expected={c.max_supply || undefined} onDone={setUri} />
         <div className="field"><label>{t('create.baseUri')}</label><input className="input" value={uri} onChange={(e) => setUri(e.target.value.trim())} placeholder="ipfs://CID/" /><span className="hint">{t('create.baseUriHint')}</span></div>
-        {validUri && uri.trim().endsWith('/') && <MetadataCheck baseUri={uri.trim()} onResult={() => undefined} expected={s.maxSupply || undefined} />}
-        <button className="btn" style={{ justifySelf: 'start' }} disabled={!validUri || !!busy}
+        {validUri && uri.trim().endsWith('/') && <MetadataCheck baseUri={uri.trim()} onResult={setMetaOk} expected={s.maxSupply || undefined} onFix={setUri} />}
+        <button className="btn" style={{ justifySelf: 'start' }} disabled={!validUri || !!busy || !metaOk}
           onClick={() => run('reveal', { address: addr, abi: collectionOwnerAbi, functionName: s.revealed ? 'setBaseURI' : 'reveal', args: [uri.trim()] })}>
           {busy === 'reveal' && <span className="spinner" />}{s.revealed ? t('studio.updateBase') : t('studio.revealWith')}
         </button>

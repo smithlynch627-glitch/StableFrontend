@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useAccount } from 'wagmi';
@@ -7,14 +8,16 @@ import type { DictKey } from '../i18n/en';
 import { api } from '../lib/api';
 import { eth, num, short, shortId, timeAgo, tokenLabel } from '../lib/format';
 import { useMoney } from '../lib/currency';
-import type { Activity, Collection, DropState, Order, Token, TraitGroup } from '../lib/types';
+import type { Activity, Collection, DropState, Order, Token, TraitsResponse } from '../lib/types';
 import { CollectionAvatar, CollectionBanner, TokenArt } from '../components/Art';
 import { HoldersTab } from '../components/collection/HoldersTab';
 import { AnalyticsTab } from '../components/collection/AnalyticsTab';
 import { AboutTab } from '../components/collection/AboutTab';
 import { CollectionMetaRow, useChainMinted } from '../components/collection/CollectionMeta';
 import { ActivityList } from '../components/ActivityList';
-import { IconChart, IconCheck, IconChevron, IconClose, IconExternal, IconFilter, IconGridLg, IconGridSm, IconList, IconSearch, IconSweep } from '../components/Icons';
+import { IconChart, IconCheck, IconChevron, IconExternal, IconFilter, IconGridLg, IconGridSm, IconList, IconSearch, IconSweep } from '../components/Icons';
+import { ActiveFilters, FiltersPanel, SORTS, useMarketFilters } from '../components/collection/Filters';
+import { RarityRank } from '../components/Rarity';
 import { BackButton } from '../components/BackButton';
 import { NftCard } from '../components/NftCard';
 import { useTrade } from '../components/trade';
@@ -117,9 +120,6 @@ function Header({ c, drop }: { c: Collection; drop: DropState | null }) {
   );
 }
 
-const SORTS: [string, DictKey][] = [
-  ['price_asc', 'col.sortPriceAsc'], ['price_desc', 'col.sortPriceDesc'], ['recent', 'col.sortRecent'], ['rarity', 'col.sortRarity'], ['id_asc', 'col.sortId'],
-];
 const PAGE = 40;
 type View = 'lg' | 'sm' | 'list';
 const VIEW_KEY = 'stable.collectionView';
@@ -132,50 +132,72 @@ const readView = (): View => {
   }
 };
 
+function useMedia(query: string) {
+  const [match, setMatch] = useState(() => window.matchMedia(query).matches);
+  useEffect(() => {
+    const m = window.matchMedia(query);
+    const on = () => setMatch(m.matches);
+    m.addEventListener('change', on);
+    return () => m.removeEventListener('change', on);
+  }, [query]);
+  return match;
+}
+
 function ItemsMarket({ c, onAnalytics }: { c: Collection; onAnalytics: () => void }) {
   const { t, lang } = useI18n();
   const trade = useTrade();
   const { money } = useMoney();
   const { address } = useAccount();
-  const [status, setStatus] = useState<'all' | 'listed'>('all');
-  const [sort, setSort] = useState('price_asc');
-  const [search, setSearch] = useState('');
-  const [debounced, setDebounced] = useState('');
-  const [minMax, setMinMax] = useState({ min: '', max: '' });
-  const [applied, setApplied] = useState({ min: '', max: '' });
-  const [traits, setTraits] = useState<Record<string, string[]>>({});
+  const filters = useMarketFilters();
+  const { f, set, clear, activeCount } = filters;
+  const [search, setSearch] = useState(f.q);
   const [view, setViewState] = useState<View>(readView);
   const setView = (v: View) => {
     setViewState(v);
     try { localStorage.setItem(VIEW_KEY, v); } catch {}
   };
-  const [filtersOpen, setFiltersOpen] = useState(() => window.innerWidth > 1100);
+  const narrow = useMedia('(max-width: 1100px)');
+  const [filtersOpen, setFiltersOpen] = useState(() => !window.matchMedia('(max-width: 1100px)').matches);
   const [sweeping, setSweeping] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const sentinel = useRef<HTMLDivElement>(null);
 
+  // Search box → URL after a short pause.
   useEffect(() => {
-    const id = setTimeout(() => setDebounced(search.trim()), 250);
+    if (search.trim() === f.q) return;
+    const id = setTimeout(() => set({ q: search }), 300);
     return () => clearTimeout(id);
-  }, [search]);
+  }, [search]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { if (!f.q && search) setSearch(''); }, [f.q]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Opening the drawer on a phone: stop the page behind it from scrolling.
+  useEffect(() => {
+    if (!(narrow && filtersOpen)) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = prev; };
+  }, [narrow, filtersOpen]);
 
   const params = {
-    status: sweeping ? 'listed' : status,
-    sort: sweeping ? 'price_asc' : sort,
-    q: debounced,
-    min: applied.min,
-    max: applied.max,
-    traits: Object.keys(traits).length ? JSON.stringify(traits) : '',
+    status: sweeping ? 'listed' : f.status,
+    sort: sweeping ? 'price_asc' : f.sort,
+    q: f.q,
+    min: f.min,
+    max: f.max,
+    rank_min: f.rmin,
+    rank_max: f.rmax,
+    owner: f.mine && address ? address.toLowerCase() : '',
+    traits: Object.keys(f.traits).length ? JSON.stringify(f.traits) : '',
   };
   const q = useInfiniteQuery({
     queryKey: ['tokens', c.address, params],
     queryFn: ({ pageParam }) => api.get<{ tokens: Token[]; total: number }>(`/collections/${c.address}/tokens`, { ...params, limit: PAGE, offset: pageParam }),
     initialPageParam: 0,
     getNextPageParam: (last, pages) => (pages.length * PAGE < last.total ? pages.length * PAGE : undefined),
+    placeholderData: (prev) => prev,
   });
   const tokens = q.data?.pages.flatMap((p) => p.tokens) ?? [];
   const total = q.data?.pages[0]?.total ?? 0;
-  const traitQ = useQuery({ queryKey: ['traits', c.address], queryFn: () => api.get<{ traits: TraitGroup[]; total: number }>(`/collections/${c.address}/traits`) });
+  const traitQ = useQuery({ queryKey: ['traits', c.address], queryFn: () => api.get<TraitsResponse>(`/collections/${c.address}/traits`) });
 
   useEffect(() => {
     const el = sentinel.current;
@@ -194,84 +216,34 @@ function ItemsMarket({ c, onAnalytics }: { c: Collection; onAnalytics: () => voi
   const selectedTokens = sweepable.filter((x) => selected.has(x.token_id));
   const selectedTotal = selectedTokens.reduce((s, x) => s + BigInt(x.listing_price_wei || 0), 0n);
   const toggleSelect = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
-
-  function toggleTrait(type: string, value: string) {
-    setTraits((prev) => {
-      const cur = new Set(prev[type] || []);
-      cur.has(value) ? cur.delete(value) : cur.add(value);
-      const next = { ...prev, [type]: [...cur] };
-      if (!next[type].length) delete next[type];
-      return next;
-    });
-  }
-  const clearAll = () => { setTraits({}); setApplied({ min: '', max: '' }); setMinMax({ min: '', max: '' }); setStatus('all'); setSearch(''); };
-  const activeCount = Object.values(traits).flat().length + (applied.min || applied.max ? 1 : 0) + (status === 'listed' ? 1 : 0);
   const setSweepCount = (n: number) => setSelected(new Set(sweepable.slice(0, n).map((x) => x.token_id)));
+  const clearAll = () => { clear(); setSearch(''); };
 
   return (
     <div className={`market ${filtersOpen ? '' : 'no-filters'}`}>
-      {filtersOpen && (
-        <aside className="filters" aria-label={t('col.filters')}>
-          <div className="row" style={{ justifyContent: 'space-between', paddingBottom: 6 }}>
-            <span className="h3">{t('col.filters')}</span>
-            <div className="row" style={{ gap: 4 }}>
-              {activeCount > 0 && <button className="btn btn--ghost btn--sm" onClick={clearAll}>{t('col.clear')}</button>}
-              <button className="icon-btn" onClick={() => setFiltersOpen(false)} aria-label={t('common.close')}><IconClose size={15} /></button>
-            </div>
-          </div>
-          <details className="filter-group" open>
-            <summary>{t('col.status')}<IconChevron size={16} className="chev" /></summary>
-            <div className="filter-group__body row-wrap">
-              <button className="chip" aria-pressed={status === 'all'} onClick={() => setStatus('all')} disabled={sweeping}>{t('col.all')}</button>
-              <button className="chip" aria-pressed={status === 'listed' || sweeping} onClick={() => setStatus('listed')}>{t('col.buyNow')}</button>
-            </div>
-          </details>
-          <details className="filter-group" open>
-            <summary>{t('col.priceRange')}<IconChevron size={16} className="chev" /></summary>
-            <div className="filter-group__body">
-              <div className="row">
-                <input className="input" inputMode="decimal" placeholder={t('col.min')} value={minMax.min} onChange={(e) => setMinMax((m) => ({ ...m, min: e.target.value }))} style={{ height: 40 }} />
-                <input className="input" inputMode="decimal" placeholder={t('col.max')} value={minMax.max} onChange={(e) => setMinMax((m) => ({ ...m, max: e.target.value }))} style={{ height: 40 }} />
-              </div>
-              <span className="tiny muted">ETH</span>
-              <button className="btn btn--outline btn--sm" onClick={() => { setApplied(minMax); if (minMax.min || minMax.max) setStatus('listed'); }}>{t('col.apply')}</button>
-            </div>
-          </details>
-          {(traitQ.data?.traits ?? []).map((g) => (
-            <details className="filter-group" key={g.trait_type}>
-              <summary>
-                <span>{g.trait_type} <span className="muted small">{g.values.length}</span></span>
-                <IconChevron size={16} className="chev" />
-              </summary>
-              <div className="filter-group__body">
-                {g.values.map((v) => (
-                  <label className="trait-option" key={v.value}>
-                    <span className="checkbox">
-                      <input type="checkbox" checked={traits[g.trait_type]?.includes(v.value) ?? false} onChange={() => toggleTrait(g.trait_type, v.value)} />
-                      {v.value}
-                    </span>
-                    <span className="count">{num(v.count, lang)}</span>
-                  </label>
-                ))}
-              </div>
-            </details>
-          ))}
-          <div className="hide-md" style={{ height: 20 }} />
-          <button className="btn btn--block" style={{ marginTop: 12 }} onClick={() => setFiltersOpen(false)} hidden={window.innerWidth > 1100}>{t('col.apply')}</button>
-        </aside>
+      {filtersOpen && !narrow && (
+        <FiltersPanel traitsData={traitQ.data} filters={filters} onClose={() => setFiltersOpen(false)} total={total} connected={!!address} isDrawer={false} />
       )}
-      {filtersOpen && window.innerWidth <= 1100 && <div className="drawer-backdrop" style={{ zIndex: 89 }} onClick={() => setFiltersOpen(false)} />}
+      {/* On phones the filters slide in over the page (rendered at the top level so nothing clips them). */}
+      {filtersOpen && narrow && createPortal(
+        <>
+          <div className="drawer-backdrop" style={{ zIndex: 89 }} onClick={() => setFiltersOpen(false)} />
+          <FiltersPanel traitsData={traitQ.data} filters={filters} onClose={() => setFiltersOpen(false)} total={total} connected={!!address} isDrawer />
+        </>,
+        document.body,
+      )}
 
       <div style={{ minWidth: 0 }}>
         <div className="toolbar">
-          <button className="icon-btn" aria-pressed={filtersOpen} onClick={() => setFiltersOpen((o) => !o)} aria-label={t('col.filters')}>
-            <IconFilter size={17} />
+          <button className={`btn btn--outline btn--sm toolbar__btn fx-toggle ${filtersOpen ? 'is-on' : ''}`} aria-pressed={filtersOpen} onClick={() => setFiltersOpen((o) => !o)} aria-label={t('col.filters')}>
+            <IconFilter size={17} /><span className="hide-sm">{t('col.filters')}</span>
+            {activeCount > 0 && <span className="fx-badge fx-badge--solid">{activeCount}</span>}
           </button>
           <div className="input-wrap">
             <span className="prefix-icon"><IconSearch size={16} /></span>
             <input className="input" style={{ height: 42 }} placeholder={t('col.searchId')} value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
-          <select className="select toolbar__sort" value={sweeping ? 'price_asc' : sort} onChange={(e) => setSort(e.target.value)} disabled={sweeping} aria-label={t('col.sort')}>
+          <select className="select toolbar__sort" value={sweeping ? 'price_asc' : f.sort} onChange={(e) => set({ sort: e.target.value })} disabled={sweeping} aria-label={t('col.sort')}>
             {SORTS.map(([id, key]) => <option key={id} value={id}>{t(key)}</option>)}
           </select>
           <ViewMenu value={view} onChange={setView} />
@@ -289,29 +261,21 @@ function ItemsMarket({ c, onAnalytics }: { c: Collection; onAnalytics: () => voi
           </button>
         </div>
 
-        <div className="row" style={{ justifyContent: 'space-between', marginBottom: 12 }}>
+        <div className="market__count">
           <span className="small soft">{t('col.count', { n: num(total, lang) })}</span>
+          {q.isFetching && !q.isFetchingNextPage && <span className="spinner" style={{ width: 13, height: 13 }} />}
         </div>
 
-        {activeCount > 0 && (
-          <div className="active-filters">
-            {status === 'listed' && <button className="chip is-active" onClick={() => setStatus('all')}>{t('col.buyNow')} <IconClose size={12} /></button>}
-            {(applied.min || applied.max) && <button className="chip is-active" onClick={() => { setApplied({ min: '', max: '' }); setMinMax({ min: '', max: '' }); }}>{applied.min || '0'} – {applied.max || '∞'} ETH <IconClose size={12} /></button>}
-            {Object.entries(traits).flatMap(([type, values]) => values.map((v) => (
-              <button key={type + v} className="chip is-active" onClick={() => toggleTrait(type, v)}>{type}: {v} <IconClose size={12} /></button>
-            )))}
-            <button className="chip" onClick={clearAll}>{t('col.clear')}</button>
-          </div>
-        )}
+        <ActiveFilters filters={filters} />
 
         {q.isLoading ? (
           <GridSkeleton count={12} />
         ) : tokens.length === 0 ? (
-          <EmptyState title={t('col.noItems')} action={activeCount ? <button className="btn btn--outline" onClick={clearAll}>{t('col.clearFilters')}</button> : undefined} />
+          <EmptyState title={t('col.noItems')} action={activeCount || f.q ? <button className="btn btn--outline" onClick={clearAll}>{t('col.clearFilters')}</button> : undefined} />
         ) : view === 'list' ? (
           <TokenTable c={c} tokens={tokens} sweeping={sweeping} selected={selected} onToggle={toggleSelect} />
         ) : (
-          <div className={`nft-grid ${view === 'sm' ? 'nft-grid--small' : ''}`}>
+          <div className={`nft-grid ${view === 'sm' ? 'nft-grid--small' : ''} ${q.isPlaceholderData ? 'is-stale' : ''}`}>
             {tokens.map((tok) => (
               <NftCard
                 key={tok.token_id}
@@ -427,7 +391,7 @@ function TokenTable({ c, tokens, sweeping, selected, onToggle }: { c: Collection
                 </td>
                 <td className="strong mono-num">{listed ? money(tok.listing_price_wei) : <span className="muted">—</span>}</td>
                 <td className="hide-sm mono-num muted">{tok.last_sale_wei ? money(tok.last_sale_wei) : '—'}</td>
-                <td className="hide-md mono-num">{tok.rarity_rank ? `#${tok.rarity_rank.toLocaleString()}` : '—'}</td>
+                <td className="hide-md">{tok.rarity_rank ? <RarityRank rank={tok.rarity_rank} of={c.total_supply} variant="chip" /> : <span className="muted">—</span>}</td>
                 <td className="hide-sm">{mine ? t('common.you') : <Link className="link" to={`/profile/${tok.owner}`} onClick={(e) => e.stopPropagation()}>{short(tok.owner)}</Link>}</td>
                 <td style={{ textAlign: 'right' }}>
                   {!sweeping && c.tradable !== false && (listed && !mine ? (

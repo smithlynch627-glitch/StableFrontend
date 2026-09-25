@@ -14,11 +14,12 @@ import type { DictKey } from '../i18n/en';
 
 export type StepKey =
   | 'signIn' | 'approveNft' | 'approveWeth' | 'wrap' | 'sign' | 'confirm' | 'wait'
-  | 'save' | 'allowlist' | 'deploy' | 'publish';
+  | 'save' | 'allowlist' | 'deploy' | 'publish' | 'cancelOld';
 
 export const stepLabel: Record<StepKey, DictKey> = {
   signIn: 'step.signIn', approveNft: 'step.approveNft', approveWeth: 'step.approveWeth', wrap: 'step.wrap', sign: 'step.sign',
   confirm: 'step.confirm', wait: 'step.wait', save: 'step.save', allowlist: 'step.allowlist', deploy: 'step.deploy', publish: 'step.publish',
+  cancelOld: 'step.cancelOld',
 };
 
 export interface ActionCtx {
@@ -145,6 +146,21 @@ export async function listItem(ctx: ActionCtx, a: { collection: Collection; toke
     maxFeeBps: Number(feeBps), maxRoyaltyBps: Number(royalty[1]), expiry: BigInt(Math.floor(Date.now() / 1000) + a.days * 86400),
     salt: randomSalt(), counter,
   });
+}
+
+/**
+ * Raise the price of an item you have listed. A signed listing stays valid until it is cancelled on-chain, so the
+ * cheaper one is cancelled first (one transaction), then the new price is signed (free).
+ */
+export async function relistHigher(ctx: ActionCtx, a: { collection: Collection; tokenId: string; priceWei: bigint; days: number }) {
+  const { market } = need(ctx.cfg);
+  const { orders } = await api.get<{ orders: Order[] }>('/orders', { collection: a.collection.address, token: a.tokenId, maker: ctx.address.toLowerCase() });
+  const open = orders.filter((o) => o.order_json?.signature);
+  if (open.length) {
+    const receipt = await send(ctx, { address: market, abi: marketAbi, functionName: 'cancel', args: [open.map((o) => toStruct(o.order_json!.order))] }, 'cancelOld');
+    await sync(ctx, receipt.transactionHash);
+  }
+  return listItem(ctx, a);
 }
 
 export async function buyListings(ctx: ActionCtx, hashes: string[]) {

@@ -82,6 +82,11 @@ export interface Token {
   listing_maker: string | null;
   collection_name?: string;
   collection_slug?: string;
+  collection_supply?: number;
+  /** Item page only: how many items have a rarity rank. */
+  rarity_of?: number | null;
+  /** Items list only, when sorting or filtering by offers. */
+  best_offer_wei?: string | null;
   art_style?: 'cow' | 'tile';
   tradable?: boolean;
   is_official?: boolean;
@@ -99,6 +104,11 @@ export interface Order {
   created_at?: string;
   collection_name?: string;
   collection_slug?: string;
+  collection_supply?: number;
+  /** Item page only: how many items have a rarity rank. */
+  rarity_of?: number | null;
+  /** Items list only, when sorting or filtering by offers. */
+  best_offer_wei?: string | null;
   art_style?: 'cow' | 'tile';
   token_name?: string | null;
   token_image?: string | null;
@@ -171,13 +181,15 @@ export interface TraitGroup {
   values: { value: string; count: number }[];
 }
 
+export interface TraitsResponse { traits: TraitGroup[]; total: number; ranked: number; maxRank: number | null }
+
 export interface UserProfile {
   user: { address: string; username: string | null; bio: string };
   counts: { owned: number; listed: number; offers_made: number };
   collections?: Collection[];
 }
 
-export interface HolderSample { token_id: string; name: string | null; image_url: string | null }
+export interface HolderSample { token_id: string; name: string | null; image_url: string | null; rarity_rank?: number | null }
 export interface Holder {
   owner: string; username: string | null; rank: number; share: number;
   held: number; minted: number; bought: number; sold: number;

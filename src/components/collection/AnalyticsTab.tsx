@@ -9,6 +9,7 @@ import { dateTime, num, short, shortId, timeAgo, tokenLabel } from '../../lib/fo
 import { usdText, useMoney } from '../../lib/currency';
 import type { Analytics, AnalyticsRange, Collection } from '../../lib/types';
 import { TokenArt } from '../Art';
+import { RarityRank } from '../Rarity';
 import { ChartCard, ColumnChart, LineChart, ScatterChart, type Point } from '../Charts';
 import { EmptyState, Skeleton } from '../ui';
 import { Kpi } from './HoldersTab';
@@ -159,7 +160,7 @@ export function AnalyticsTab({ c }: { c: Collection }) {
             <div className="rare-grid">
               {a.rareListed.map((x) => (
                 <Link key={x.token_id} to={`/item/${c.slug}/${x.token_id}`} className="rare-card">
-                  <span className="rare-card__img"><TokenArt collection={c} token={{ token_id: x.token_id, image_url: x.image_url }} /><span className="rare-card__rank">#{x.rarity_rank}</span></span>
+                  <span className="rare-card__img"><TokenArt collection={c} token={{ token_id: x.token_id, image_url: x.image_url }} />{x.rarity_rank ? <RarityRank rank={x.rarity_rank} of={c.total_supply} variant="media" className="rare-card__rank" /> : null}</span>
                   <span className="strong small ellipsis">{tokenLabel(x.name, x.token_id)}</span>
                   <span className="small mono-num">{money(x.price_wei)}</span>
                 </Link>

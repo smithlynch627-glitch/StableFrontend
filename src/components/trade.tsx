@@ -8,14 +8,14 @@ import type { DictKey } from '../i18n/en';
 import { api } from '../lib/api';
 import { useAppConfig } from '../lib/appConfig';
 import {
-  acceptOffer, buyListings, cancelOrder, errorMessage, listItem, makeOffer, quote, stepLabel, wrapEth,
+  acceptOffer, buyListings, cancelOrder, errorMessage, listItem, makeOffer, quote, relistHigher, stepLabel, wrapEth,
   type ActionCtx, type StepKey,
 } from '../lib/actions';
 import { wethAbi } from '../lib/abis';
 import { bpsFee, eth, shortId, tokenLabel, toWei } from '../lib/format';
 import type { Address, Collection, DropState, Order, Token } from '../lib/types';
 import { CollectionAvatar, TokenArt } from './Art';
-import { IconAlert, IconCheck } from './Icons';
+import { IconAlert, IconCheck, IconClose } from './Icons';
 import { Modal, useToast } from './ui';
 import { useWalletUI } from './wallet';
 
@@ -69,6 +69,22 @@ export function TradeProvider({ children }: { children: ReactNode }) {
 // ── Runner: tracks wallet steps and result ───────────────────────────────────
 type Phase = 'form' | 'running' | 'done' | 'error';
 
+type RunStep = { key: StepKey; done: boolean; pending?: boolean };
+
+/**
+ * Next step in the list. Steps planned up front (pending) stay visible and light up in turn; unplanned sub-steps
+ * (wallet confirm, waiting, saving) are slotted in before the next planned one.
+ */
+function advance(s: RunStep[], key: StepKey): RunStep[] {
+  const started = s.filter((x) => !x.pending).length - 1;
+  const later = s.findIndex((x, i) => i > started && x.pending && x.key === key);
+  if (later !== -1) return s.map((x, i) => (i < later ? { ...x, done: true, pending: false } : i === later ? { key, done: false } : x));
+  const firstPending = s.findIndex((x) => x.pending);
+  const at = firstPending === -1 ? s.length : firstPending;
+  const done = s.map((x, i) => (i < at ? { ...x, done: true } : x));
+  return [...done.slice(0, at), { key, done: false }, ...done.slice(at)];
+}
+
 export function useRunner() {
   const cfg = useAppConfig();
   const { address } = useAccount();
@@ -76,28 +92,24 @@ export function useRunner() {
   const qc = useQueryClient();
   const { t } = useI18n();
   const [phase, setPhase] = useState<Phase>('form');
-  const [steps, setSteps] = useState<{ key: StepKey; done: boolean }[]>([]);
+  const [steps, setSteps] = useState<RunStep[]>([]);
   const [error, setError] = useState('');
 
   const run = useCallback(
-    async <R,>(fn: (ctx: ActionCtx) => Promise<R>): Promise<R | undefined> => {
+    async <R,>(fn: (ctx: ActionCtx) => Promise<R>, plan: StepKey[] = []): Promise<R | undefined> => {
       if (!address) return;
       setPhase('running');
-      setSteps([]);
+      setSteps(plan.map((key) => ({ key, done: false, pending: true })));
       setError('');
       const ctx: ActionCtx = {
         cfg,
         address: address as Address,
         signMessage: (message) => signMessageAsync({ message }),
-        progress: (key) =>
-          setSteps((s) => {
-            const prev = s.map((x) => ({ ...x, done: true }));
-            return prev.some((x) => x.key === key) ? prev.map((x) => (x.key === key ? { ...x, done: false } : x)) : [...prev, { key, done: false }];
-          }),
+        progress: (key) => setSteps((s) => advance(s, key)),
       };
       try {
         const out = await fn(ctx);
-        setSteps((s) => s.map((x) => ({ ...x, done: true })));
+        setSteps((s) => s.map((x) => ({ key: x.key, done: true })));
         setPhase('done');
         qc.invalidateQueries();
         return out;
@@ -113,16 +125,22 @@ export function useRunner() {
   return { phase, steps, error, run, reset, busy: phase === 'running' };
 }
 
-export function StepList({ steps }: { steps: { key: StepKey; done: boolean }[] }) {
+export function StepList({ steps, failed = false }: { steps: RunStep[]; failed?: boolean }) {
   const { t } = useI18n();
+  const lastStarted = steps.filter((x) => !x.pending).length - 1;
   return (
     <ol className="steps">
-      {steps.map((s) => (
-        <li key={s.key} className={s.done ? 'is-done' : 'is-active'}>
-          <span className="step-dot">{s.done ? <IconCheck size={13} /> : <span className="spinner" style={{ width: 12, height: 12 }} />}</span>
-          {t(stepLabel[s.key])}
-        </li>
-      ))}
+      {steps.map((s, i) => {
+        const state = s.pending ? 'is-pending' : s.done ? 'is-done' : failed && i === lastStarted ? 'is-failed' : 'is-active';
+        return (
+          <li key={`${s.key}-${i}`} className={state}>
+            <span className="step-dot">
+              {state === 'is-done' ? <IconCheck size={13} /> : state === 'is-active' ? <span className="spinner" style={{ width: 12, height: 12 }} /> : state === 'is-failed' ? <IconClose size={12} /> : <span className="step-dot__n">{i + 1}</span>}
+            </span>
+            {t(stepLabel[s.key])}
+          </li>
+        );
+      })}
     </ol>
   );
 }
@@ -142,7 +160,7 @@ export function RunnerStatus({ runner, successText, onClose, extra }: { runner: 
   if (runner.phase === 'error')
     return (
       <div style={{ display: 'grid', gap: 14 }}>
-        {runner.steps.length > 0 && <StepList steps={runner.steps.map((s, i, a) => ({ ...s, done: i < a.length - 1 }))} />}
+        {runner.steps.some((s) => !s.pending) && <StepList steps={runner.steps.map((s) => (s.done ? s : { ...s, done: false }))} failed />}
         <div className="notice notice--strong"><IconAlert size={18} /><span>{runner.error}</span></div>
         <button className="btn btn--outline btn--block" onClick={runner.reset}>{t('common.retry')}</button>
       </div>
@@ -245,24 +263,38 @@ type ModalProps = { runner: ReturnType<typeof useRunner>; onClose: () => void; c
 
 function ListModal({ runner, onClose, col, token }: ModalProps & { token: Token }) {
   const { t } = useI18n();
-  const [price, setPrice] = useState(token.listing_price_wei ? eth(token.listing_price_wei, 6) : '');
+  const { address } = useAccount();
+  const current = token.listing_price_wei && token.listing_maker === address?.toLowerCase() ? BigInt(token.listing_price_wei) : null;
+  const [price, setPrice] = useState(current ? eth(current, 6) : '');
   const [days, setDays] = useState(7);
   const wei = toWei(price);
   const valid = !!wei && wei > 0n;
-  const raising = !!token.listing_price_wei && !!wei && wei > BigInt(token.listing_price_wei);
+  // Raising needs the current (cheaper) listing cancelled on-chain first; lowering just signs a new one.
+  const raising = !!current && !!wei && wei > current;
+  const lowering = !!current && !!wei && wei < current;
+  const same = !!current && !!wei && wei === current;
   const below = !!wei && !!col.floor_wei && wei < BigInt(col.floor_wei);
+  const priceText = wei ? eth(wei, 6) : '0';
 
   async function submit() {
     if (!wei) return;
-    await runner.run((ctx) => listItem(ctx, { collection: col, tokenId: token.token_id, priceWei: wei, days }));
+    const a = { collection: col, tokenId: token.token_id, priceWei: wei, days };
+    if (raising) await runner.run((ctx) => relistHigher(ctx, a), ['cancelOld', 'sign']);
+    else await runner.run((ctx) => listItem(ctx, a));
   }
 
   return (
-    <Modal open onClose={onClose} title={t('list.title')} locked={runner.busy}>
+    <Modal open onClose={onClose} title={current ? t('list.editTitle') : t('list.title')} locked={runner.busy}>
       {runner.phase === 'form' ? (
         <>
           <ItemPreview col={col} token={token} />
-          <PriceInput label={t('list.price')} value={price} onChange={setPrice} unit="ETH" />
+          {current && (
+            <div className="list-current">
+              <span className="small muted">{t('list.currentPrice')}</span>
+              <span className="strong mono-num">{eth(current, 6)} ETH</span>
+            </div>
+          )}
+          <PriceInput label={current ? t('list.newPrice') : t('list.price')} value={price} onChange={setPrice} unit="ETH" />
           {col.floor_wei && (
             <div className="row" style={{ justifyContent: 'space-between', marginTop: -8 }}>
               <span className="small muted">{t('list.floor', { price: eth(col.floor_wei) })}</span>
@@ -270,13 +302,24 @@ function ListModal({ runner, onClose, col, token }: ModalProps & { token: Token 
             </div>
           )}
           {below && <div className="notice"><IconAlert size={16} />{t('list.belowFloor')}</div>}
-          {raising && <div className="notice"><IconAlert size={16} />{t('list.raiseWarn')}</div>}
+          {raising && (
+            <div className="relist-plan">
+              <div className="relist-plan__title"><IconAlert size={16} />{t('list.raiseTitle')}</div>
+              <ol>
+                <li><span className="relist-plan__n">1</span><span><strong>{t('list.raiseStep1', { price: eth(current!, 6) })}</strong><span className="tiny muted">{t('list.raiseStep1Sub')}</span></span></li>
+                <li><span className="relist-plan__n">2</span><span><strong>{t('list.raiseStep2', { price: priceText })}</strong><span className="tiny muted">{t('list.raiseStep2Sub')}</span></span></li>
+              </ol>
+            </div>
+          )}
+          {lowering && <div className="notice"><IconCheck size={16} />{t('list.lowerHint')}</div>}
           <DurationPicker value={days} onChange={setDays} />
           <SellerSummary priceWei={wei} col={col} unit="ETH" />
-          <button className="btn btn--lg btn--block" disabled={!valid || raising} onClick={submit}>{t('list.confirm')}</button>
+          <button className="btn btn--lg btn--block" disabled={!valid || same} onClick={submit}>
+            {raising ? t('list.confirmRaise', { price: priceText }) : current ? t('list.confirmUpdate') : t('list.confirm')}
+          </button>
         </>
       ) : (
-        <RunnerStatus runner={runner} successText={t('list.done')} onClose={onClose} />
+        <RunnerStatus runner={runner} successText={raising || runner.steps.some((s) => s.key === 'cancelOld') ? t('list.doneRaise', { price: priceText }) : t('list.done')} onClose={onClose} />
       )}
     </Modal>
   );

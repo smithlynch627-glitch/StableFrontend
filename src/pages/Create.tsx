@@ -10,7 +10,8 @@ import type { Collection } from '../lib/types';
 import { IconAlert, IconCheck, IconLock } from '../components/Icons';
 import { IpfsFolderUpload } from '../components/IpfsUpload';
 import { PhaseListEditor, addressesIn, defaultDrafts, validateDrafts, type PhaseDraft } from '../components/PhaseEditor';
-import { ImageField, MetadataCheck, PreRevealPicker } from '../components/CreateArt';
+import { ImageField, PreRevealPicker } from '../components/CreateArt';
+import { MetadataCheck } from '../components/MetadataCheck';
 import { MetadataGuide } from '../components/MetadataGuide';
 import { RunnerStatus, useRunner } from '../components/trade';
 import { Modal } from '../components/ui';
@@ -183,13 +184,13 @@ export default function Create() {
               {artMode === 'ipfs' && cfg.ipfsUploads && (
                 <>
                   <IpfsFolderUpload expected={Number(f.maxSupply) || undefined} onDone={(uri) => { set('baseUri', uri); setMetaOk(false); }} />
-                  {f.baseUri && <><div className="small soft ellipsis"><IconCheck size={14} /> {f.baseUri}</div><MetadataCheck baseUri={f.baseUri} onResult={setMetaOk} expected={Number(f.maxSupply) || undefined} /></>}
+                  {f.baseUri && <><div className="small soft ellipsis"><IconCheck size={14} /> {f.baseUri}</div><MetadataCheck baseUri={f.baseUri} onResult={setMetaOk} expected={Number(f.maxSupply) || undefined} onFix={(b) => { set('baseUri', b); setMetaOk(false); }} /></>}
                 </>
               )}
               {artMode === 'cid' && (
                 <>
                   <div className="field"><label htmlFor="c-uri">{t('create.baseUri')}<span className="req">*</span></label><input id="c-uri" className="input" value={f.baseUri} onChange={(e) => { set('baseUri', e.target.value.trim()); setMetaOk(false); }} placeholder="ipfs://bafy.../" /><span className="hint">{t('create.baseUriHint')}</span></div>
-                  <MetadataCheck baseUri={f.baseUri} onResult={setMetaOk} expected={Number(f.maxSupply) || undefined} />
+                  <MetadataCheck baseUri={f.baseUri} onResult={setMetaOk} expected={Number(f.maxSupply) || undefined} onFix={(b) => { set('baseUri', b); setMetaOk(false); }} />
                 </>
               )}
             </>
