@@ -4,6 +4,7 @@
 // - Pre-reveal: one image → placeholder metadata (IPFS, or hosted by the API when IPFS is not configured).
 import { useRef, useState } from 'react';
 import { useI18n } from '../i18n';
+import { IMAGE_ACCEPT } from './CreateArt';
 import { useAppConfig } from '../lib/appConfig';
 import { useAuthedApi } from '../lib/tx';
 import { errorMessage } from '../lib/actions';
@@ -102,7 +103,7 @@ export function IpfsFolderUpload({ expected, onDone }: { expected?: number; onDo
         <button type="button" className="upload" style={{ minHeight: 96 }} onClick={() => imgRef.current?.click()}>
           <span className="strong">{t('art.imagesFolder')}</span>
           <span className="small muted">{images.length ? t('art.files', { n: images.length }) : '…'}</span>
-          <input ref={imgRef} type="file" hidden multiple accept="image/*,video/mp4" {...dirProps} onChange={(e) => setImages([...(e.target.files || [])].filter((f) => !f.name.startsWith('.')))} />
+          <input ref={imgRef} type="file" hidden multiple accept="image/*,video/mp4,video/webm,video/quicktime" {...dirProps} onChange={(e) => setImages([...(e.target.files || [])].filter((f) => !f.name.startsWith('.')))} />
         </button>
         <button type="button" className="upload" style={{ minHeight: 96 }} onClick={() => jsonRef.current?.click()}>
           <span className="strong">{t('art.metadataFolder')}</span>
@@ -153,7 +154,7 @@ export function PreRevealUpload({ name, onDone }: { name: string; onDone: (uri: 
     <div className="upload upload--square" style={{ width: 200 }} onClick={() => ref.current?.click()} role="button" tabIndex={0}>
       {preview && <img src={preview} alt="" />}
       <span className="btn btn--sm btn--outline" style={{ background: 'var(--bg)' }}>{busy ? <><span className="spinner" />{t('create.uploading')}</> : t('art.pickImage')}</span>
-      <input ref={ref} type="file" hidden accept="image/png,image/jpeg,image/gif,image/webp" onChange={(e) => pick(e.target.files?.[0])} />
+      <input ref={ref} type="file" hidden accept={IMAGE_ACCEPT} onChange={(e) => pick(e.target.files?.[0])} />
     </div>
   );
 }

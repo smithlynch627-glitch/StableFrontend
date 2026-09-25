@@ -9,7 +9,7 @@ import { useAppConfig } from '../lib/appConfig';
 import { dateTime, eth, pct, short, shortId, timeAgo, tokenLabel } from '../lib/format';
 import { usdText, useMoney } from '../lib/currency';
 import type { Activity, Collection, Order, Token } from '../lib/types';
-import { Avatar, CollectionAvatar, TokenArt, fixImageUrl } from '../components/Art';
+import { Avatar, CollectionAvatar, TokenArt, fixImageUrl, isVideoUrl } from '../components/Art';
 import { IconChevron, IconCopy, IconExternal, IconShare } from '../components/Icons';
 import { SocialIcon } from '../components/Social';
 import { useTrade } from '../components/trade';
@@ -261,7 +261,9 @@ export default function ItemPage() {
 
       {zoom && token.image_url && (
         <div className="lightbox" role="dialog" aria-modal="true" onClick={() => setZoom(false)}>
-          <img src={fixImageUrl(toHttp(token.image_url))} alt={title} />
+          {isVideoUrl(token.image_url)
+            ? <video src={fixImageUrl(toHttp(token.image_url), cfg.ipfsGateway)} controls autoPlay loop playsInline onClick={(e) => e.stopPropagation()} />
+            : <img src={fixImageUrl(toHttp(token.image_url), cfg.ipfsGateway)} alt={title} />}
         </div>
       )}
     </div>

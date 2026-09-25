@@ -522,8 +522,8 @@ export const en = {
   'col.select': 'Select',
   'col.clearSel': 'Clear',
   'footer.community': 'Community',
-  'img.spec': 'Recommended {w} × {h} px. PNG, JPG, GIF or WebP, up to {mb} MB (large images are resized for you).',
-  'img.specPre': 'Recommended 1000 × 1000 px (square). PNG, JPG, GIF or WebP. Up to {mb} MB; bigger images are compressed automatically (GIFs must already fit).',
+  'img.spec': 'Recommended {w} × {h} px. PNG, JPG, GIF, WebP, AVIF, SVG or BMP, up to {mb} MB (large images are resized for you).',
+  'img.specPre': 'Recommended 1000 × 1000 px (square). PNG, JPG, GIF, WebP, AVIF, SVG or BMP. Up to {mb} MB; bigger images are compressed automatically (GIFs and SVGs must already fit).',
   'img.warnRatio': 'Not {r}: parts may be cropped',
   'img.warnSmall': 'Smaller than recommended: may look blurry',
   'img.orLink': 'or paste an image link (https:// or ipfs://)',
@@ -796,6 +796,7 @@ export const en = {
   'drop.soldOutTitle': 'All {n} minted',
   'drop.closedBody': 'Minting is closed. You can still buy from holders on the marketplace.',
   'drop.buyOnMarket': 'Buy on the marketplace',
+  'mg.r5': 'Any image type works: PNG, JPG, GIF, WebP, AVIF, SVG or BMP (MP4 or WebM video too). Use the same extension in every "image" line as your files have.',
 } as const;
 
 export type DictKey = keyof typeof en;

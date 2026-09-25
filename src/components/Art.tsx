@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { GIWA_COWS } from '../config';
+import { useAppConfig } from '../lib/appConfig';
 import { blobPath, hashSeed, mulberry32 } from '../lib/art';
 import type { Attribute } from '../lib/types';
 
@@ -57,41 +58,98 @@ export function TileArt({ seed, wide = false }: { seed: string; wide?: boolean }
 
 /** Image with skeleton while loading and generated art if it fails. */
 /**
- * IPFS image links are tried in order: as given → without a file name after the CID (single-file uploads) →
- * the same on a second gateway. A "bafkrei…" CID is one raw file, so a file name after it is dropped up front.
+ * IPFS images can be slow or missing on any single gateway (new uploads take time to spread, public gateways
+ * rate-limit). Each image is tried on: the marketplace's own gateway (if set) → the link as saved → Pinata's
+ * public gateway → w3s.link → dweb.link. A "bafkrei…" CID is one raw file, so a file name after it is dropped;
+ * for other CIDs the bare CID is tried last (images uploaded one by one with a name added by mistake).
  */
-export function imageCandidates(src: string): string[] {
-  const m = src.match(/^(https?:\/\/[^/]+\/ipfs\/)([a-z0-9]{40,})(\/[^?#]*)?/i);
+const PUBLIC_GATEWAYS = ['https://gateway.pinata.cloud/ipfs/', 'https://w3s.link/ipfs/', 'https://dweb.link/ipfs/'];
+export function imageCandidates(src: string, preferred?: string | null): string[] {
+  const m = src.match(/^(?:ipfs:\/\/(?:ipfs\/)?|https?:\/\/[^/]+\/ipfs\/)([a-z0-9]{40,})(\/[^?#]*)?/i);
   if (!m) return [src];
-  const [, gw, cid, rawPath] = m;
+  const [, cid, rawPath] = m;
   const path = rawPath && rawPath !== '/' ? rawPath : '';
-  const raw = /^bafkrei/i.test(cid);
-  const out = raw || !path ? [`${gw}${cid}`] : [`${gw}${cid}${path}`, `${gw}${cid}`];
-  const alt = /dweb\.link/.test(gw) ? 'https://ipfs.io/ipfs/' : 'https://dweb.link/ipfs/';
-  out.push(...out.map((u) => u.replace(gw, alt)));
+  const tail = /^bafkrei/i.test(cid) ? '' : path;
+  const own = src.startsWith('http') ? src.slice(0, src.indexOf('/ipfs/') + 6) : null;
+  const gateways = [preferred, own, ...PUBLIC_GATEWAYS].filter((g): g is string => !!g);
+  const out = gateways.map((g) => `${g}${cid}${tail}`);
+  if (tail) out.push(`${gateways[0]}${cid}`, `${PUBLIC_GATEWAYS[0]}${cid}`);
   return [...new Set(out)];
 }
-export const fixImageUrl = (src: string) => imageCandidates(src)[0];
+export const fixImageUrl = (src: string, preferred?: string | null) => imageCandidates(src, preferred)[0];
 
+/** Video files (by extension or data: type) are shown as silent looping video; everything else as an image. */
+export const isVideoUrl = (src: string) => /^data:video\//i.test(src) || /\.(mp4|webm|mov|m4v|ogv)(\?|#|$)/i.test(src);
+
+/**
+ * NFT media in any browser format: PNG, JPG, GIF, WebP, AVIF, SVG, BMP (as <img>) and MP4/WebM/MOV (as <video>).
+ * Links without a file extension are tried as an image first and as a video if no gateway can show them as one.
+ */
 export function SmartImage({ src, alt, fallback }: { src: string; alt: string; fallback: ReactNode }) {
-  const list = useMemo(() => imageCandidates(src), [src]);
+  const { ipfsGateway } = useAppConfig();
+  const list = useMemo(() => imageCandidates(src, ipfsGateway), [src, ipfsGateway]);
   const [i, setI] = useState(0);
+  const [kind, setKind] = useState<'img' | 'video'>(isVideoUrl(src) ? 'video' : 'img');
   const [state, setState] = useState<'loading' | 'ok' | 'error'>('loading');
-  useEffect(() => { setI(0); setState('loading'); }, [src]);
+  useEffect(() => { setI(0); setKind(isVideoUrl(src) ? 'video' : 'img'); setState('loading'); }, [src, ipfsGateway]);
+  const next = () => {
+    if (i + 1 < list.length) return setI(i + 1);
+    // No gateway could show it as an image: an extension-less link may be a video.
+    if (kind === 'img' && !/^data:image\//i.test(src)) { setKind('video'); setI(0); return; }
+    setState('error');
+  };
+  // Lazy media only starts loading near the screen, so the timeout below starts only once it is visible.
+  const ref = useRef<HTMLImageElement & HTMLVideoElement>(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el || visible) return;
+    if (typeof IntersectionObserver === 'undefined') return setVisible(true);
+    const io = new IntersectionObserver((e) => e.some((x) => x.isIntersecting) && setVisible(true), { rootMargin: '300px' });
+    io.observe(el);
+    return () => io.disconnect();
+  }, [visible, i, kind]);
+  // A gateway that neither loads nor fails within 9 s is skipped (some hang instead of returning an error).
+  useEffect(() => {
+    if (!visible || state !== 'loading') return;
+    const id = setTimeout(next, kind === 'video' ? 20_000 : 9_000);
+    return () => clearTimeout(id);
+  }, [i, kind, state, visible, list.length]); // eslint-disable-line react-hooks/exhaustive-deps
   if (state === 'error') return <>{fallback}</>;
+  const hidden = state === 'loading' ? { opacity: 0 } : undefined;
   return (
     <>
       {state === 'loading' && <div className="skeleton" style={{ position: 'absolute', inset: 0, borderRadius: 0 }} />}
-      <img
-        className="art"
-        src={list[i]}
-        alt={alt}
-        loading="lazy"
-        decoding="async"
-        onLoad={() => setState('ok')}
-        onError={() => (i + 1 < list.length ? setI(i + 1) : setState('error'))}
-        style={state === 'loading' ? { opacity: 0 } : undefined}
-      />
+      {kind === 'video' ? (
+        <video
+          key={`v:${list[i]}`}
+          ref={ref}
+          className="art"
+          src={list[i]}
+          aria-label={alt}
+          autoPlay
+          muted
+          loop
+          playsInline
+          preload="metadata"
+          onLoadedData={() => setState('ok')}
+          onError={next}
+          style={hidden}
+        />
+      ) : (
+        <img
+          key={`i:${list[i]}`}
+          ref={ref}
+          className="art"
+          src={list[i]}
+          alt={alt}
+          loading="lazy"
+          decoding="async"
+          onLoad={() => setState('ok')}
+          onError={next}
+          style={hidden}
+        />
+      )}
     </>
   );
 }

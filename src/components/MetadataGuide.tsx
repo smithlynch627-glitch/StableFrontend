@@ -5,7 +5,7 @@ import { useI18n } from '../i18n';
 import { download, makeZip } from '../lib/zip';
 import { IconAlert, IconCheck, IconClose } from './Icons';
 
-const EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg'] as const;
+const EXTS = ['png', 'jpg', 'jpeg', 'gif', 'webp', 'avif', 'svg', 'bmp', 'mp4', 'webm'] as const;
 const CID = /(?:ipfs:\/\/|\/ipfs\/)?(Qm[1-9A-HJ-NP-Za-km-z]{44}|b[a-z2-7]{50,})/;
 const MAX_FILES = 65_000;
 const EXAMPLE_CID = 'bafybeiexampleimagesfolderciddonotusethis1234567890abc';
@@ -204,6 +204,7 @@ export function MetadataGuide({ name, description, supply }: { name: string; des
           <ul className="meta-rules">
             <li className="is-do"><IconCheck size={14} />{t('mg.r1', { n: supply || 'N' })}</li>
             <li className="is-do"><IconCheck size={14} />{t('mg.r2')}</li>
+            <li className="is-do"><IconCheck size={14} />{t('mg.r5')}</li>
             <li className="is-dont"><IconClose size={14} />{t('mg.r3')}</li>
             <li className="is-dont"><IconClose size={14} />{t('mg.r4')}</li>
           </ul>

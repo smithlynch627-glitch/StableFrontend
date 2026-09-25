@@ -524,8 +524,8 @@ export const ko: Partial<Record<DictKey, string>> = {
   'col.select': '선택',
   'col.clearSel': '선택 해제',
   'footer.community': '커뮤니티',
-  'img.spec': '권장 {w} × {h} px. PNG, JPG, GIF, WebP, 최대 {mb} MB (큰 이미지는 자동으로 줄여 드립니다).',
-  'img.specPre': '권장 1000 × 1000 px (정사각형). PNG, JPG, GIF, WebP. 최대 {mb} MB이며, 더 큰 이미지는 자동으로 압축됩니다 (GIF는 크기 안이어야 합니다).',
+  'img.spec': '권장 {w} × {h} px. PNG, JPG, GIF, WebP, AVIF, SVG, BMP, 최대 {mb} MB (큰 이미지는 자동으로 줄여 드립니다).',
+  'img.specPre': '권장 1000 × 1000 px (정사각형). PNG, JPG, GIF, WebP, AVIF, SVG, BMP. 최대 {mb} MB이며, 더 큰 이미지는 자동으로 압축됩니다 (GIF와 SVG는 크기 안이어야 합니다).',
   'img.warnRatio': '{r} 비율이 아닙니다: 일부가 잘릴 수 있습니다',
   'img.warnSmall': '권장보다 작습니다: 흐리게 보일 수 있습니다',
   'img.orLink': '또는 이미지 링크 붙여넣기 (https:// 또는 ipfs://)',
@@ -798,4 +798,5 @@ export const ko: Partial<Record<DictKey, string>> = {
   'drop.soldOutTitle': '{n}개 모두 민팅 완료',
   'drop.closedBody': '민팅이 마감되었습니다. 마켓플레이스에서 보유자에게 구매할 수 있습니다.',
   'drop.buyOnMarket': '마켓플레이스에서 구매',
+  'mg.r5': '모든 이미지 형식 사용 가능: PNG, JPG, GIF, WebP, AVIF, SVG, BMP (MP4, WebM 영상도 가능). "image" 줄의 확장자는 실제 파일과 같아야 합니다.',
 };

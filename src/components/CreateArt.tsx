@@ -6,28 +6,67 @@ import { useAppConfig } from '../lib/appConfig';
 import { useAuthedApi } from '../lib/tx';
 import { errorMessage } from '../lib/actions';
 import { IconAlert, IconCheck } from './Icons';
-import { fixImageUrl } from './Art';
+import { SmartImage } from './Art';
 import { useToast } from './ui';
 
 const MB = 1024 * 1024;
 export const toHttp = (u: string) => (u.startsWith('ipfs://') ? `https://ipfs.io/ipfs/${u.slice(7).replace(/^ipfs\//, '')}` : u.startsWith('ar://') ? `https://arweave.net/${u.slice(5)}` : u);
 const isImageLink = (u: string) => /^(https:\/\/|ipfs:\/\/|ar:\/\/)\S+$/i.test(u.trim());
 
+/** Every image type browsers display: PNG, JPG, GIF, WebP, AVIF, SVG, BMP. */
+export const IMAGE_ACCEPT = 'image/png,image/jpeg,image/gif,image/webp,image/avif,image/svg+xml,image/bmp,.png,.jpg,.jpeg,.gif,.webp,.avif,.svg,.bmp';
+const KEEP_AS_IS = /^image\/(gif|svg\+xml)$/; // animated GIFs and vector SVGs are never re-encoded
+
 type Info = { w: number; h: number; mb: number; format: string };
-async function readInfo(file: File): Promise<Info> {
-  const bmp = await createImageBitmap(file);
-  const info = { w: bmp.width, h: bmp.height, mb: file.size / MB, format: (file.type.split('/')[1] || '?').toUpperCase().replace('JPEG', 'JPG') };
-  bmp.close();
-  return info;
+// Some systems (often Windows) give AVIF, SVG or BMP files an empty type, so the file name decides then.
+const EXT_TYPE: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', svg: 'image/svg+xml', bmp: 'image/bmp' };
+const typeOf = (file: File) => file.type || EXT_TYPE[file.name.split('.').pop()?.toLowerCase() || ''] || '';
+const withType = (file: File) => (file.type || !typeOf(file) ? file : new File([file], file.name, { type: typeOf(file) }));
+const formatOf = (file: File) => (typeOf(file).split('/')[1] || file.name.split('.').pop() || '?').replace('svg+xml', 'svg').toUpperCase().replace('JPEG', 'JPG');
+export async function readInfo(file: File): Promise<Info> {
+  // SVG cannot go through createImageBitmap in every browser, so its size is read with an <img>.
+  if (typeOf(file) === 'image/svg+xml') {
+    const url = URL.createObjectURL(withType(file)); // an SVG only opens with its type set
+    try {
+      const img = new Image();
+      await new Promise<void>((ok, fail) => { img.onload = () => ok(); img.onerror = () => fail(new Error('This SVG could not be read.')); img.src = url; });
+      return { w: img.naturalWidth || 1000, h: img.naturalHeight || 1000, mb: file.size / MB, format: 'SVG' };
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
+  try {
+    const bmp = await createImageBitmap(file);
+    const info = { w: bmp.width, h: bmp.height, mb: file.size / MB, format: formatOf(file) };
+    bmp.close();
+    return info;
+  } catch {
+    // Older browsers without AVIF decoding in createImageBitmap: an <img> can still read the size.
+    const url = URL.createObjectURL(file);
+    try {
+      const img = new Image();
+      await new Promise<void>((ok, fail) => { img.onload = () => ok(); img.onerror = () => fail(new Error(`This browser cannot open ${formatOf(file)} images. Try PNG, JPG or WebP.`)); img.src = url; });
+      return { w: img.naturalWidth, h: img.naturalHeight, mb: file.size / MB, format: formatOf(file) };
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+  }
 }
 
-/** Resizes to maxDim and re-encodes to WebP until it fits maxBytes (GIFs are kept as-is to stay animated). */
-async function fitImage(file: File, maxDim: number, maxBytes: number): Promise<File> {
-  if (file.type === 'image/gif') {
-    if (file.size > maxBytes) throw new Error(`GIF is ${(file.size / MB).toFixed(1)} MB; the limit here is ${(maxBytes / MB).toFixed(0)} MB. Use a smaller GIF or paste a link.`);
+/** Resizes to maxDim and re-encodes to WebP until it fits maxBytes (GIFs stay animated and SVGs stay vector, as-is). */
+export async function fitImage(input: File, maxDim: number, maxBytes: number): Promise<File> {
+  const file = withType(input);
+  const tooBig = () => new Error(`${formatOf(file)} is ${(file.size / MB).toFixed(1)} MB; the limit here is ${(maxBytes / MB).toFixed(0)} MB. Use a smaller file or paste a link.`);
+  if (KEEP_AS_IS.test(file.type)) {
+    if (file.size > maxBytes) throw tooBig();
     return file;
   }
-  const bmp = await createImageBitmap(file);
+  const bmp = await createImageBitmap(file).catch(() => null);
+  if (!bmp) {
+    // Cannot be re-encoded in this browser: uploaded as-is when it already fits.
+    if (file.size > maxBytes) throw tooBig();
+    return file;
+  }
   if (file.size <= maxBytes && Math.max(bmp.width, bmp.height) <= maxDim) { bmp.close(); return file; }
   let dim = Math.min(maxDim, Math.max(bmp.width, bmp.height));
   for (let q = 0.92; ; q -= 0.08) {
@@ -96,7 +135,7 @@ export function ImageField({ label, required, spec, value, onChange, square, max
         <span className="btn btn--sm btn--outline" style={{ background: 'var(--bg)' }}>
           {busy ? <><span className="spinner" />{t('create.uploading')}</> : value ? t('create.change') : t('create.upload')}
         </span>
-        <input ref={input} type="file" accept="image/png,image/jpeg,image/gif,image/webp" hidden onChange={(e) => pick(e.target.files?.[0])} />
+        <input ref={input} type="file" accept={IMAGE_ACCEPT} hidden onChange={(e) => pick(e.target.files?.[0])} />
       </div>
       <span className="hint">{t('img.spec', { w: spec.w, h: spec.h, mb: limit })}</span>
       {info && <InfoLine info={info} want={spec} />}
@@ -171,7 +210,7 @@ export function PreRevealPicker({ name, description, value, onChange }: { name: 
           {mode === 'upload' && (
             <>
               <button type="button" className="btn btn--outline" onClick={() => input.current?.click()} disabled={busy}>{busy ? <><span className="spinner" />{t('create.uploading')}</> : t('art.pickImage')}</button>
-              <input ref={input} type="file" hidden accept="image/png,image/jpeg,image/gif,image/webp" onChange={(e) => pick(e.target.files?.[0])} />
+              <input ref={input} type="file" hidden accept={IMAGE_ACCEPT} onChange={(e) => pick(e.target.files?.[0])} />
               <span className="hint">{t('img.specPre', { mb: limit })}</span>
               {info && <InfoLine info={info} want={{ w: 1000, h: 1000 }} />}
             </>
@@ -264,7 +303,7 @@ export function MetadataCheck({ baseUri, onResult, expected }: { baseUri: string
         <div className="meta-check">
           {items.map((it) => (
             <div key={it.id} className={`meta-check__item ${it.ok ? '' : 'is-bad'}`}>
-              <div className="meta-check__img">{it.image ? <img src={fixImageUrl(it.image)} alt="" loading="lazy" onError={(e) => ((e.target as HTMLImageElement).style.visibility = 'hidden')} /> : <IconAlert size={18} />}</div>
+              <div className="meta-check__img" style={{ position: 'relative' }}>{it.image ? <SmartImage src={it.image} alt="" fallback={<IconAlert size={18} />} /> : <IconAlert size={18} />}</div>
               <div style={{ minWidth: 0 }}>
                 <div className="strong small ellipsis">{it.ok ? it.name || `#${it.id}` : `${it.id}.json`}</div>
                 <div className="tiny muted">{it.ok ? t('meta.traits', { n: it.attributes?.length ?? 0 }) : it.error}</div>
