@@ -2,7 +2,7 @@
 // Safety: every write is simulated first (a failing tx is caught before the wallet opens, so no gas is wasted),
 // payment amounts come from the contract or from the maker's signed order, and the contracts re-check everything.
 import { parseEventLogs, zeroAddress, zeroHash, type Hash, type TransactionReceipt } from 'viem';
-import { readContract, signTypedData, simulateContract, waitForTransactionReceipt, writeContract } from 'wagmi/actions';
+import { getBlock, readContract, signTypedData, simulateContract, waitForTransactionReceipt, writeContract } from 'wagmi/actions';
 import { activeChain } from '../config';
 import { api, ApiError } from './api';
 import { ORDER_TYPES, collectionAbi, factoryAbi, marketAbi, wethAbi } from './abis';
@@ -228,9 +228,19 @@ export async function acceptOffer(ctx: ActionCtx, a: { order: Order; tokenId: st
 export async function mint(ctx: ActionCtx, a: { collection: string; phaseIndex: number; quantity: number; proof: `0x${string}`[] }) {
   const collection = a.collection as Address;
   // The price is read from the contract at the moment of minting, never from the API.
-  const phases = await read<readonly { price: bigint }[]>({ address: collection, abi: collectionAbi, functionName: 'getPhases' });
+  const phases = await read<readonly { price: bigint; startTime: bigint }[]>({ address: collection, abi: collectionAbi, functionName: 'getPhases' });
   const phase = phases[a.phaseIndex];
   if (!phase) throw new Error('This mint phase does not exist.');
+  // Right at the start of a phase, the latest block can still be a second older than the start time, which
+  // would make the contract say "not started". Wait (max ~4 s) until the chain has reached the start.
+  const start = Number(phase.startTime);
+  if (Math.abs(Date.now() / 1000 - start) < 15) {
+    for (let i = 0; i < 16; i++) {
+      const b = await getBlock(wagmiConfig, { chainId: activeChain.id }).catch(() => null);
+      if (!b || Number(b.timestamp) >= start) break;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
   const receipt = await send(ctx, {
     address: collection, abi: collectionAbi, functionName: 'mint',
     args: [BigInt(a.phaseIndex), BigInt(a.quantity), a.proof], value: phase.price * BigInt(a.quantity),

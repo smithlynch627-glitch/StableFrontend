@@ -3,24 +3,22 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useAccount } from 'wagmi';
 import { useI18n } from '../i18n';
-import { SocialIcon } from '../components/Social';
 import type { DictKey } from '../i18n/en';
 import { api } from '../lib/api';
 import { eth, num, short, shortId, timeAgo, tokenLabel } from '../lib/format';
 import { useMoney } from '../lib/currency';
 import type { Activity, Collection, DropState, Order, Token, TraitGroup } from '../lib/types';
-import { Avatar, CollectionAvatar, CollectionBanner, TokenArt } from '../components/Art';
+import { CollectionAvatar, CollectionBanner, TokenArt } from '../components/Art';
 import { HoldersTab } from '../components/collection/HoldersTab';
 import { AnalyticsTab } from '../components/collection/AnalyticsTab';
 import { AboutTab } from '../components/collection/AboutTab';
+import { CollectionMetaRow, useChainMinted } from '../components/collection/CollectionMeta';
 import { ActivityList } from '../components/ActivityList';
-import { IconAlert, IconChart, IconCheck, IconChevron, IconClose, IconCopy, IconExternal, IconFilter, IconGridLg, IconGridSm, IconList, IconSearch, IconShare, IconSweep } from '../components/Icons';
+import { IconChart, IconCheck, IconChevron, IconClose, IconExternal, IconFilter, IconGridLg, IconGridSm, IconList, IconSearch, IconSweep } from '../components/Icons';
 import { BackButton } from '../components/BackButton';
-import { SocialLink } from '../components/Social';
-import { useAppConfig } from '../lib/appConfig';
 import { NftCard } from '../components/NftCard';
 import { useTrade } from '../components/trade';
-import { Badge, EmptyState, GridSkeleton, Skeleton, Tabs, useToast } from '../components/ui';
+import { Badge, EmptyState, GridSkeleton, Skeleton, Tabs } from '../components/ui';
 
 type Tab = 'items' | 'offers' | 'activity' | 'holders' | 'analytics' | 'about';
 const TABS: Tab[] = ['items', 'offers', 'activity', 'holders', 'analytics', 'about'];
@@ -82,7 +80,7 @@ function Header({ c, drop }: { c: Collection; drop: DropState | null }) {
   const { money, usd, isUsd } = useMoney();
   const { address } = useAccount();
   const isCreator = !!address && c.creator === address.toLowerCase();
-  const [more, setMore] = useState(false);
+  const { soldOut: chainSoldOut } = useChainMinted(c);
   const stats: [string, ReactNode][] = [
     // The floor always stays in ETH (with the USD value underneath when USD is selected).
     [t('common.floor'), c.floor_wei ? <>{eth(c.floor_wei)} ETH{isUsd && <span className="stat__sub">{usd(c.floor_wei)}</span>}</> : '—'],
@@ -101,35 +99,14 @@ function Header({ c, drop }: { c: Collection; drop: DropState | null }) {
             <h1 className="h1">{c.name}</h1>
             <Badge official={c.is_official} verified={c.verified} size={24} />
           </div>
-          <div className="row-wrap small soft col-head__meta">
-            {c.is_official && <span className="pill pill--solid">{t('common.official')}</span>}
-            {c.creator && (
-              <Link to={`/profile/${c.creator}`} className="row" style={{ gap: 6 }}>
-                <Avatar address={c.creator} size={20} />
-                {t('col.by', { creator: short(c.creator) })}
-              </Link>
-            )}
-            {c.max_supply ? <span className="pill pill--outline">{t('col.minted', { n: num(c.total_supply, lang), max: num(c.max_supply, lang) })}</span> : null}
-            <span className="pill pill--outline">{t('col.royalty', { pct: c.royalty_bps / 100 })}</span>
-            {c.twitter && <SocialLink kind="x" href={c.twitter} size={15} />}
-            {c.discord && <SocialLink kind="discord" href={c.discord} size={16} />}
-            {c.telegram && <SocialLink kind="telegram" href={c.telegram} size={16} />}
-            {c.website && <SocialLink kind="website" href={c.website} size={16} />}
-            <MoreMenu c={c} />
-          </div>
+          <CollectionMetaRow c={c} />
         </div>
         <div className="col-head__actions">
           {isCreator && !c.is_external && <Link className="btn btn--outline" to={`/studio/${c.slug}`}>{t('col.manage')}</Link>}
-          {drop && drop.status !== 'ended' && drop.status !== 'sold_out' && <Link className="btn" to={`/launchpad/${c.slug}`}>{t('col.goMint')}</Link>}
+          {drop && drop.status !== 'ended' && drop.status !== 'sold_out' && !chainSoldOut && <Link className="btn" to={`/launchpad/${c.slug}`}>{t('col.goMint')}</Link>}
           {c.tradable !== false && <button className="btn btn--outline" onClick={() => trade.offer(c.address)}>{t('col.makeOffer')}</button>}
         </div>
       </div>
-      {c.description && (
-        <div style={{ maxWidth: 760 }}>
-          <p className={`soft ${more ? '' : 'clamp-2'}`}>{c.description}</p>
-          {c.description.length > 160 && <button className="link small" style={{ background: 'none', border: 0, padding: 0, marginTop: 4 }} onClick={() => setMore((m) => !m)}>{more ? t('col.less') : t('col.more')}</button>}
-        </div>
-      )}
       {c.tradable === false && <div className="notice">{t('col.notTradable')}</div>}
       <div className="stats">
         {stats.map(([label, value]) => (
@@ -469,45 +446,6 @@ function TokenTable({ c, tokens, sweeping, selected, onToggle }: { c: Collection
 }
 
 /** ⋯ menu: view contract on-chain, copy/share the collection link, share on X, report. */
-function MoreMenu({ c }: { c: Collection }) {
-  const { t } = useI18n();
-  const cfg = useAppConfig();
-  const toast = useToast();
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
-    document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
-  }, []);
-  const link = `${window.location.origin}/collection/${c.slug}`;
-  const copy = () => {
-    navigator.clipboard?.writeText(link).then(() => toast(t('col.linkCopied')));
-    setOpen(false);
-  };
-  const share = async () => {
-    setOpen(false);
-    if (navigator.share) await navigator.share({ title: c.name, url: link }).catch(() => undefined);
-    else copy();
-  };
-  return (
-    <div className="dropdown" ref={ref}>
-      <button className="icon-btn" onClick={() => setOpen((o) => !o)} aria-label={t('col.moreOptions')} aria-expanded={open}>
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" /></svg>
-      </button>
-      {open && (
-        <div className="dropdown__menu menu-list" role="menu" style={{ right: 'auto', left: 0 }}>
-          <a href={`${cfg.explorerUrl}/token/${c.address}`} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}><IconExternal size={16} />{t('col.viewOnChain')}</a>
-          <button onClick={copy}><IconCopy size={16} />{t('col.copyLink')}</button>
-          <button onClick={share}><IconShare size={16} />{t('col.share')}</button>
-          <a href={`https://x.com/intent/tweet?text=${encodeURIComponent(c.name)}&url=${encodeURIComponent(link)}`} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}><SocialIcon kind="x" size={14} />{t('col.shareX')}</a>
-          <Link to={`/support?category=report&collection=${c.address}`} onClick={() => setOpen(false)}><IconAlert size={16} />{t('col.report')}</Link>
-        </div>
-      )}
-    </div>
-  );
-}
-
 function OffersTab({ c }: { c: Collection }) {
   const { t, lang } = useI18n();
   const { money } = useMoney();

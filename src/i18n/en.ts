@@ -793,6 +793,9 @@ export const en = {
   'mg.download': 'Download {n} metadata files (.zip)',
   'mg.errCount': 'Choose between 1 and {max} tokens',
   'mg.after': 'Unzip it, upload the metadata folder to Pinata as a folder, and paste ipfs://<its CID>/ in the field below.',
+  'drop.soldOutTitle': 'All {n} minted',
+  'drop.closedBody': 'Minting is closed. You can still buy from holders on the marketplace.',
+  'drop.buyOnMarket': 'Buy on the marketplace',
 } as const;
 
 export type DictKey = keyof typeof en;

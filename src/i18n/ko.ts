@@ -795,4 +795,7 @@ export const ko: Partial<Record<DictKey, string>> = {
   'mg.download': '메타데이터 파일 {n}개 다운로드 (.zip)',
   'mg.errCount': '1에서 {max} 사이로 입력하세요',
   'mg.after': '압축을 풀고 metadata 폴더를 Pinata에 폴더로 올린 뒤, 아래 칸에 ipfs://<CID>/ 를 붙여넣으세요.',
+  'drop.soldOutTitle': '{n}개 모두 민팅 완료',
+  'drop.closedBody': '민팅이 마감되었습니다. 마켓플레이스에서 보유자에게 구매할 수 있습니다.',
+  'drop.buyOnMarket': '마켓플레이스에서 구매',
 };

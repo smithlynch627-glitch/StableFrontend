@@ -1259,3 +1259,16 @@ main { overflow-x: clip; }
 @media (max-width: 640px) {
   .meta-guide__head .segmented button { white-space: normal; height: auto; min-height: 34px; padding: 6px 10px; line-height: 1.2; }
 }
+
+/* ── Sold out / ended mint panel ─────────────────────────────────────────── */
+.mint-box__closed { display: grid; gap: 8px; animation: fade-up 0.3s var(--ease) both; }
+.mint-box__closed .btn { margin-top: 8px; }
+.mint-box.is-closed { border-color: var(--line); }
+
+/* ── (i) description popover in the collection header ───────────────────── */
+.info-pop { position: relative; display: inline-flex; }
+.info-pop__btn { width: 34px; height: 34px; }
+.info-pop__card { position: fixed; z-index: 90; max-height: 320px; overflow-y: auto; padding: 14px 16px; border-radius: 14px; background: var(--bg); border: 1px solid var(--line); box-shadow: var(--pop); display: grid; gap: 6px; animation: pop-in 0.16s var(--ease); text-align: left; }
+.info-pop__card p { margin: 0; white-space: pre-line; overflow-wrap: anywhere; color: var(--soft); }
+.info-pop__card::before { content: ''; position: absolute; top: -12px; left: 0; right: 0; height: 12px; } /* keeps hover alive between icon and card */
+.col-head__meta { align-items: center; }

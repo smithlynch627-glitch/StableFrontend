@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { encodeFunctionData, type Address } from 'viem';
@@ -11,12 +11,13 @@ import { collectionAbi } from '../lib/abis';
 import { mint } from '../lib/actions';
 import { useMoney } from '../lib/currency';
 import { useEthPrice, useNetworkFee } from '../lib/live';
-import { dateTime, eth, num, short, tokenLabel } from '../lib/format';
+import { dateTime, eth, num, tokenLabel } from '../lib/format';
 import type { Collection, DropState, Eligibility, Phase, Token } from '../lib/types';
-import { Avatar, CollectionAvatar, CowImage, TokenArt } from '../components/Art';
+import { CollectionAvatar, CowImage, TokenArt } from '../components/Art';
 import { DropStatusPill, phasePrice } from '../components/DropCard';
 import { IconArrowLeft, IconArrowRight, IconCheck, IconClock, IconClose, IconLock, IconMinus, IconPlus } from '../components/Icons';
 import { ConfigChangedAlert } from '../components/PhaseChanges';
+import { CollectionMetaRow, useChainMinted } from '../components/collection/CollectionMeta';
 import { RunnerStatus, useRunner } from '../components/trade';
 import { Badge, EmptyState, Modal, Progress, Skeleton, useNow } from '../components/ui';
 import { useWalletUI } from '../components/wallet';
@@ -107,11 +108,44 @@ export function EligChip({ state }: { state: EligState }) {
   );
 }
 
+/**
+ * Drop state worked out in the browser every second from the phase times and the live minted count, so the
+ * page flips the moment a phase opens or closes, or the last token is minted (no waiting for the server).
+ * Same rules as the contract: a phase is live from its start and closed at its end.
+ */
+export type LiveDrop = DropState & { minted: number; soldOut: boolean };
+export function useLiveDrop(c: Collection, drop: DropState): LiveDrop {
+  const tick = useNow(1000);
+  const [edgeTick, setEdgeTick] = useState(0);
+  const { minted, soldOut: chainSoldOut } = useChainMinted(c, drop.status !== 'ended' && drop.status !== 'sold_out');
+  // Re-render exactly when the next phase opens or closes (not up to a second later).
+  useEffect(() => {
+    const t = Date.now();
+    const edges = drop.phases.flatMap((p) => [new Date(p.start).getTime(), p.end ? new Date(p.end).getTime() : Infinity]).filter((x) => x > t && x - t < 2 ** 31 - 1);
+    if (!edges.length) return;
+    const id = setTimeout(() => setEdgeTick(Date.now()), Math.min(...edges) - t + 15);
+    return () => clearTimeout(id);
+  }, [drop.phases, edgeTick]);
+  const now = Math.max(tick, edgeTick, Date.now());
+  return useMemo(() => {
+    const soldOut = chainSoldOut || drop.status === 'sold_out';
+    const phases = drop.phases.map((p) => {
+      const start = new Date(p.start).getTime();
+      const end = p.end ? new Date(p.end).getTime() : Infinity;
+      const status: Phase['status'] = soldOut || now >= end ? 'ended' : now < start ? 'upcoming' : 'live';
+      return status === p.status ? p : { ...p, status };
+    });
+    const livePhase = phases.find((p) => p.status === 'live') ?? null;
+    const nextPhase = phases.find((p) => p.status === 'upcoming') ?? null;
+    const status: DropState['status'] = soldOut ? 'sold_out' : livePhase ? 'live' : nextPhase ? 'upcoming' : 'ended';
+    return { ...drop, phases, livePhase, nextPhase, status, minted, soldOut };
+  }, [drop, now, minted, chainSoldOut]);
+}
+
 /** Mint progress, shown above the mint panel. The minted count is read live from the contract. */
-export function MintProgress({ c }: { c: Collection }) {
+export function MintProgress({ c, live = true }: { c: Collection; live?: boolean }) {
   const { t, lang } = useI18n();
-  const totalQ = useReadContract({ address: c.address as Address, abi: collectionAbi, functionName: 'totalMinted', chainId: activeChain.id, query: { refetchInterval: 6_000 } });
-  const minted = totalQ.data !== undefined ? Number(totalQ.data) : c.total_supply;
+  const { minted } = useChainMinted(c, live);
   const max = c.max_supply || 0;
   const pct = max ? Math.min(100, (minted / max) * 100) : 0;
   const left = Math.max(0, max - minted);
@@ -141,23 +175,24 @@ export function MintBox({ c, drop }: { c: Collection; drop: DropState }) {
   const [modal, setModal] = useState(false);
   const [minted, setMinted] = useState<string[]>([]);
   const colAddr = c.address as Address;
-  const live = drop.livePhase;
-  const next = drop.nextPhase;
+  const d = useLiveDrop(c, drop);
+  const live = d.livePhase;
+  const next = d.nextPhase;
   const shown = live || next;
+  const closed = d.status === 'sold_out' || d.status === 'ended';
 
   const phasesQ = useReadContract({ address: colAddr, abi: collectionAbi, functionName: 'getPhases', chainId: activeChain.id, query: { refetchInterval: 20_000 } });
-  const totalQ = useReadContract({ address: colAddr, abi: collectionAbi, functionName: 'totalMinted', chainId: activeChain.id, query: { refetchInterval: 6_000 } });
   const mineQ = useReadContract({
     address: colAddr, abi: collectionAbi, functionName: 'mintedInPhase', chainId: activeChain.id,
     args: [BigInt(live?.index ?? 0), (address ?? '0x0000000000000000000000000000000000000000') as Address],
-    query: { enabled: !!address && !!live },
+    query: { enabled: !!address && !!live, refetchInterval: 10_000 },
   });
   const elig = useEligibility(c.slug, address);
 
   const chainPhase = live ? phasesQ.data?.[live.index] : undefined;
   const price = chainPhase ? chainPhase.price : shown ? BigInt(shown.priceWei) : 0n;
   const maxPerWallet = chainPhase ? Number(chainPhase.maxPerWallet) : shown?.maxPerWallet ?? 0;
-  const totalMinted = totalQ.data !== undefined ? Number(totalQ.data) : c.total_supply;
+  const totalMinted = d.minted;
   const mine = Number(mineQ.data ?? 0n);
   const myLive = live ? elig.data?.phases[live.index] : undefined;
   const remaining = c.max_supply ? c.max_supply - totalMinted : 50;
@@ -168,7 +203,7 @@ export function MintBox({ c, drop }: { c: Collection; drop: DropState }) {
   const eligState = eligibilityOf(shown, isConnected, shown ? elig.data?.phases[shown.index] : undefined, elig.isLoading);
 
   let blocker: string | null = null;
-  if (drop.status === 'sold_out' || remaining <= 0) blocker = t('drop.soldOut');
+  if (d.soldOut || remaining <= 0) blocker = t('drop.soldOut');
   else if (!live) blocker = next ? t('drop.notLive') : t('drop.ended');
   else if (isConnected && myLive && !myLive.eligible) blocker = t('drop.notEligible');
   else if (isConnected && maxPerWallet && walletLeft <= 0) blocker = t('drop.limitReached');
@@ -203,8 +238,16 @@ export function MintBox({ c, drop }: { c: Collection; drop: DropState }) {
   const close = () => { setModal(false); runner.reset(); };
 
   return (
-    <div className={`mint-box ${live ? 'is-live' : ''}`}>
-      {shown && (
+    <div className={`mint-box ${live ? 'is-live' : ''} ${closed ? 'is-closed' : ''}`}>
+      {closed && (
+        <div className="mint-box__closed">
+          <span className="eyebrow">{d.soldOut ? t('lp.soldOut') : t('lp.ended')}</span>
+          <span className="mint-box__phase-name">{d.soldOut ? t('drop.soldOutTitle', { n: num(c.max_supply || d.minted) }) : t('drop.ended')}</span>
+          <span className="small soft">{t('drop.closedBody')}</span>
+          <Link className="btn btn--lg btn--block" to={`/collection/${c.slug}`}>{t('drop.buyOnMarket')}</Link>
+        </div>
+      )}
+      {!closed && shown && (
         <div className="mint-box__phase">
           <div className="mint-box__phase-info">
             <span className="eyebrow">{live ? <><span className="live-dot" />{t('drop.nowLive')}</> : t('drop.upNext')}</span>
@@ -216,9 +259,9 @@ export function MintBox({ c, drop }: { c: Collection; drop: DropState }) {
         </div>
       )}
 
-      {shown && drop.status !== 'sold_out' && <EligibilityBanner phase={shown} state={eligState} />}
+      {!closed && shown && <EligibilityBanner phase={shown} state={eligState} />}
 
-      <div className="mint-box__price">
+      {!closed && <div className="mint-box__price">
         <div>
           <div className="small muted">{t('drop.price')}</div>
           <div className="mint-box__amount mono-num">{price === 0n ? t('lp.free') : `${eth(price, 6)} ETH`}</div>
@@ -231,7 +274,7 @@ export function MintBox({ c, drop }: { c: Collection; drop: DropState }) {
             <button onClick={() => setQty(Math.min(Math.max(1, maxQty), q + 1))} disabled={q >= maxQty} aria-label="+"><IconPlus size={16} /></button>
           </div>
         )}
-      </div>
+      </div>}
 
       {live && (
         <div className="sum-rows">
@@ -246,7 +289,7 @@ export function MintBox({ c, drop }: { c: Collection; drop: DropState }) {
         </div>
       )}
 
-      {!isConnected ? (
+      {closed ? null : !isConnected ? (
         <button className="btn btn--lg btn--block" onClick={openConnect}>{t('drop.connect')}</button>
       ) : chainId !== activeChain.id ? (
         <button className="btn btn--lg btn--block" onClick={() => ensureReady()}>{t('wallet.switch')}</button>
@@ -255,7 +298,7 @@ export function MintBox({ c, drop }: { c: Collection; drop: DropState }) {
       ) : (
         <button className="btn btn--lg btn--block mint-box__cta" onClick={onMint} disabled={!myLive}>{q > 1 ? t('drop.mintN', { n: q }) : t('drop.mint')}</button>
       )}
-      {isConnected && live && maxPerWallet ? (
+      {!closed && isConnected && live && maxPerWallet ? (
         <div className="row small soft" style={{ justifyContent: 'space-between', flexWrap: 'wrap' }}>
           <span>{t('drop.youMinted', { n: mine, max: maxPerWallet })}</span>
           <span className="strong">{t('drop.walletLeft', { n: Math.max(0, walletLeft) })}</span>
@@ -359,15 +402,26 @@ function MintedSlide({ c, id, label }: { c: Collection; id: string; label: strin
 
 export default function DropPage() {
   const { slug = '' } = useParams();
-  const { t, lang } = useI18n();
-  const { isConnected, address } = useAccount();
+  const { t } = useI18n();
   const q = useDrop(slug);
-  const elig = useEligibility(q.data?.collection.slug || slug, q.data ? address : undefined);
-
   if (q.isLoading) return <div className="page container drop-layout"><Skeleton h={520} r={22} /><Skeleton h={520} r={22} /></div>;
   if (!q.data) return <div className="page container"><div className="back-row"><BackButton fallback="/launchpad" /></div><EmptyState title={t('drop.notFound')} action={<Link className="btn" to="/launchpad">{t('lp.title')}</Link>} /></div>;
-  const { collection: c, drop } = q.data;
-  const lowest = drop.phases.reduce<bigint | null>((m, p) => (m === null || BigInt(p.priceWei) < m ? BigInt(p.priceWei) : m), null);
+  return <DropView c={q.data.collection} drop={q.data.drop} refetch={q.refetch} />;
+}
+
+function DropView({ c, drop, refetch }: { c: Collection; drop: DropState; refetch: () => unknown }) {
+  const { t, lang } = useI18n();
+  const { isConnected, address } = useAccount();
+  const elig = useEligibility(c.slug, address);
+  const d = useLiveDrop(c, drop);
+  const lowest = d.phases.reduce<bigint | null>((m, p) => (m === null || BigInt(p.priceWei) < m ? BigInt(p.priceWei) : m), null);
+
+  // When a phase opens/closes or the drop sells out, the page has already flipped; also refresh the server copy.
+  const edge = `${d.status}:${d.livePhase?.index ?? '-'}`;
+  const firstEdge = useRef(edge);
+  useEffect(() => {
+    if (edge !== firstEdge.current) refetch();
+  }, [edge]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
     <div className="page container drop-page">
@@ -376,7 +430,7 @@ export default function DropPage() {
         <div className="drop-media">
           <div className="drop-media__main">
             <CollectionAvatar collection={c} />
-            <span className="drop-media__pill"><DropStatusPill d={drop} /></span>
+            <span className="drop-media__pill"><DropStatusPill d={d} /></span>
           </div>
           {c.art_style === 'cow' && (
             <div className="drop-media__strip" aria-label={t('drop.preview')}>
@@ -385,44 +439,31 @@ export default function DropPage() {
           )}
           <div className="drop-facts">
             <span><span className="tiny muted">{t('drop.supply')}</span><strong className="mono-num">{num(c.max_supply, lang)}</strong></span>
-            <span><span className="tiny muted">{t('drop.minted')}</span><strong className="mono-num">{num(c.total_supply, lang)}</strong></span>
+            <span><span className="tiny muted">{t('drop.minted')}</span><strong className="mono-num">{num(d.minted, lang)}</strong></span>
             <span><span className="tiny muted">{t('drop.price')}</span><strong className="mono-num">{lowest === null ? '—' : lowest === 0n ? t('lp.free') : `${eth(lowest, 6)} ETH`}</strong></span>
-            <span><span className="tiny muted">{t('drop.phases')}</span><strong className="mono-num">{drop.phases.length}</strong></span>
+            <span><span className="tiny muted">{t('drop.phases')}</span><strong className="mono-num">{d.phases.length}</strong></span>
           </div>
         </div>
 
         <div className="drop-main">
           <div className="drop-head">
-            <div className="row-wrap">{c.is_official && <span className="pill pill--solid">{t('common.official')}</span>}</div>
-            <div className="row" style={{ gap: 8, alignItems: 'center' }}><h1 className="h1">{c.name}</h1><Badge official={c.is_official} verified={c.verified} size={24} /></div>
-            {c.creator && (
-              <Link to={`/profile/${c.creator}`} className="row small soft" style={{ gap: 8, width: 'fit-content' }}>
-                <Avatar address={c.creator} size={22} />{t('col.by', { creator: short(c.creator) })}
-              </Link>
-            )}
-            {c.description && <p className="soft drop-head__desc">{c.description}</p>}
-            <div className="row-wrap">
-              <Link to={`/collection/${c.slug}`} className="btn btn--outline btn--sm">{t('home.viewCollection')}</Link>
-              {c.twitter && <a className="icon-btn" href={c.twitter} target="_blank" rel="noreferrer" aria-label="X"><SocialIcon kind="x" size={15} /></a>}
-              {c.discord && <a className="icon-btn" href={c.discord} target="_blank" rel="noreferrer" aria-label="Discord"><SocialIcon kind="discord" size={15} /></a>}
-              {c.telegram && <a className="icon-btn" href={c.telegram} target="_blank" rel="noreferrer" aria-label="Telegram"><SocialIcon kind="telegram" size={15} /></a>}
-              {c.website && <a className="icon-btn" href={c.website} target="_blank" rel="noreferrer" aria-label={t('col.website')}><SocialIcon kind="website" size={15} /></a>}
-            </div>
+            <div className="row" style={{ gap: 8, alignItems: 'center', minWidth: 0 }}><h1 className="h1">{c.name}</h1><Badge official={c.is_official} verified={c.verified} size={24} /></div>
+            <CollectionMetaRow c={c} showCollectionLink />
           </div>
 
           <ConfigChangedAlert collection={c.address} changes={drop.changes} />
 
-          <MintProgress c={c} />
+          <MintProgress c={c} live={d.status === 'live' || d.status === 'upcoming'} />
           <MintBox c={c} drop={drop} />
 
           <section className="drop-phases">
             <header className="row" style={{ justifyContent: 'space-between' }}>
               <h2 className="h3">{t('drop.phases')}</h2>
-              <span className="small muted">{t('drop.allPhases', { n: drop.phases.length })}</span>
+              <span className="small muted">{t('drop.allPhases', { n: d.phases.length })}</span>
             </header>
             <ol className="phase-line">
-              {drop.phases.map((p, i) => (
-                <PhaseRow key={p.id ?? p.index} p={p} n={i + 1} last={i === drop.phases.length - 1}
+              {d.phases.map((p, i) => (
+                <PhaseRow key={p.id ?? p.index} p={p} n={i + 1} last={i === d.phases.length - 1}
                   state={eligibilityOf(p, isConnected, elig.data?.phases[p.index], elig.isLoading)} />
               ))}
             </ol>
