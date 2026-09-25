@@ -80,7 +80,8 @@ export const phaseComponents = [
 ] as const;
 
 export const collectionAbi = [
-  ...['InvalidPhase', 'PhaseNotStarted', 'PhaseEnded', 'InvalidQuantity', 'ExceedsMaxSupply', 'ExceedsWalletLimit', 'NotAllowlisted', 'InvalidConfig']
+  ...['InvalidPhase', 'PhaseNotStarted', 'PhaseEnded', 'InvalidQuantity', 'ExceedsMaxSupply', 'ExceedsWalletLimit', 'NotAllowlisted', 'InvalidConfig',
+    'MintIsPaused', 'PublicPhaseRequired', 'PhasesOutOfOrder']
     .map((name) => ({ type: 'error', name, inputs: [] }) as const),
   { type: 'error', name: 'WrongPayment', inputs: [{ name: 'expected', type: 'uint256' }, { name: 'received', type: 'uint256' }] },
   {
@@ -115,7 +116,7 @@ export const collectionAbi = [
 ] as const;
 
 export const factoryAbi = [
-  ...['InvalidConfig', 'EnforcedPause', 'ZeroAddress'].map((name) => ({ type: 'error', name, inputs: [] }) as const),
+  ...['InvalidConfig', 'EnforcedPause', 'ZeroAddress', 'PublicPhaseRequired', 'PhasesOutOfOrder'].map((name) => ({ type: 'error', name, inputs: [] }) as const),
   {
     type: 'function', name: 'createCollection', stateMutability: 'nonpayable',
     inputs: [
@@ -169,6 +170,10 @@ export const collectionOwnerAbi = [
   ...collectionAbi,
   view('owner', 'address'), view('revealed', 'bool'), view('metadataFrozen', 'bool'), view('mintPaused', 'bool'),
   view('payoutAddress', 'address'), view('contractURI', 'string'), view('platformFeeBps', 'uint16'),
+  // v2 (single-transaction editing): replace every phase at once. keepIds[i] = id of the phase it continues, or 0 for new.
+  fn('setPhases', [{ name: 'phases', type: 'tuple[]', components: phaseComponents }, { name: 'keepIds', type: 'uint32[]' }]),
+  view('phaseIds', 'uint32[]'), view('version', 'uint256'),
+  // v1 (collections created before the upgrade): one phase per transaction.
   fn('setPhase', [{ name: 'phaseId', type: 'uint256' }, phaseInput]),
   fn('addPhase', [phaseInput]),
   fn('setMintPaused', [{ name: 'paused', type: 'bool' }]),
@@ -184,5 +189,4 @@ export const collectionOwnerAbi = [
   fn('setContractURI', [{ name: 'uri', type: 'string' }]),
   { type: 'error', name: 'MetadataIsFrozen', inputs: [] },
   { type: 'error', name: 'InvalidRecipients', inputs: [] },
-  { type: 'error', name: 'MintIsPaused', inputs: [] },
 ] as const;

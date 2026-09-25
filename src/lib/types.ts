@@ -46,6 +46,9 @@ export interface Collection {
   discord?: string | null;
   telegram?: string | null;
   drop_hidden?: boolean;
+  about?: string | null;
+  about_image_url?: string | null;
+  about_items?: { label: string; value: string }[];
   floor_wei: string | null;
   best_offer_wei: string | null;
   volume_wei: string;
@@ -121,6 +124,7 @@ export interface Activity {
 }
 
 export interface Phase {
+  id?: number | null;
   name: string;
   start: string;
   end: string | null;
@@ -138,6 +142,7 @@ export interface DropState {
   nextPhase: Phase | null;
   platformFeeBps: number;
   featured?: boolean;
+  changes?: PhaseChangeEntry[];
 }
 
 export interface DropListItem extends DropState {
@@ -168,4 +173,43 @@ export interface UserProfile {
   user: { address: string; username: string | null; bio: string };
   counts: { owned: number; listed: number; offers_made: number };
   collections?: Collection[];
+}
+
+export interface HolderSample { token_id: string; name: string | null; image_url: string | null }
+export interface Holder {
+  owner: string; username: string | null; rank: number; share: number;
+  held: number; minted: number; bought: number; sold: number;
+  spent: string; received: string; volume: string; pnl: string;
+  samples: HolderSample[];
+}
+export interface HoldersResponse {
+  holders: Holder[];
+  total: number;
+  floorWei: string | null;
+  summary: { holders: number; supply: number; uniquePct: number; avgHeld: number; top10Pct: number; distribution: { label: string; count: number }[] };
+}
+
+export interface PhaseChange {
+  type: 'added' | 'removed' | 'changed' | 'paused' | 'resumed' | 'supply';
+  phase?: string;
+  field?: 'name' | 'price' | 'start' | 'end' | 'maxPerWallet' | 'allowlist';
+  from?: string | number | null;
+  to?: string | number | null;
+  after?: { start: string; end: string | null; priceWei: string; maxPerWallet: number | null; allowlist: boolean };
+  before?: { start: string; end: string | null; priceWei: string; maxPerWallet: number | null; allowlist: boolean };
+}
+export interface PhaseChangeEntry { id: number; tx_hash: string | null; changes: PhaseChange[]; changed_at: string }
+
+export type AnalyticsRange = '24h' | '7d' | '30d' | 'all';
+export interface AnalyticsSale { token_id: string; price_wei: string; created_at: string; from_addr: string; to_addr: string; tx_hash: string; name: string | null; image_url: string | null; rarity_rank: number | null }
+export interface Analytics {
+  range: AnalyticsRange;
+  totals: { sales: number; volume: string; avg: string | null; min: string | null; max: string | null; buyers: number; sellers: number; floor: string | null; bestOffer: string | null; owners: number; listed: number; supply: number };
+  previous: { sales: number; volume: string } | null;
+  series: { t: string; sales: number; volume: string; avg: string; min: string; max: string }[];
+  sales: { t: string; price: string; token_id: string }[];
+  floor: { t: string; floor: string | null; listed: number; owners: number }[];
+  topSales: AnalyticsSale[];
+  rareListed: { token_id: string; name: string | null; image_url: string | null; rarity_rank: number; price_wei: string; maker: string }[];
+  mint: { minted: number; minters: number; revenue: string };
 }

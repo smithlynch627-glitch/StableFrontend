@@ -136,8 +136,17 @@ export function EmptyState({ icon, title, action }: { icon?: ReactNode; title: s
 }
 
 export function Tabs<T extends string>({ tabs, value, onChange }: { tabs: { id: T; label: ReactNode; count?: number }[]; value: T; onChange: (v: T) => void }) {
+  const ref = useRef<HTMLDivElement>(null);
+  // On narrow screens the tab row scrolls sideways: keep the selected tab in view (without moving the page).
+  useEffect(() => {
+    const row = ref.current;
+    const btn = row?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (!row || !btn || row.scrollWidth <= row.clientWidth) return;
+    const left = btn.offsetLeft - (row.clientWidth - btn.offsetWidth) / 2;
+    row.scrollTo({ left: Math.max(0, left), behavior: 'smooth' });
+  }, [value]);
   return (
-    <div className="tabs" role="tablist">
+    <div className="tabs" role="tablist" ref={ref}>
       {tabs.map((tab) => (
         <button key={tab.id} role="tab" aria-selected={value === tab.id} onClick={() => onChange(tab.id)}>
           {tab.label}

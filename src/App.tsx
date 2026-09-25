@@ -19,6 +19,7 @@ const NotFound = lazy(() => import('./pages/NotFound'));
 const GiwaCows = lazy(() => import('./pages/GiwaCows'));
 const Studio = lazy(() => import('./pages/Studio'));
 const Support = lazy(() => import('./pages/Support'));
+const Legal = lazy(() => import('./pages/Legal'));
 
 function ScrollTop() {
   const { pathname } = useLocation();
@@ -50,6 +51,8 @@ export default function App() {
             <Route path="/activity" element={<ActivityPage />} />
             <Route path="/studio/:slug" element={<Studio />} />
             <Route path="/support" element={<Support />} />
+            <Route path="/terms" element={<Legal kind="terms" />} />
+            <Route path="/privacy" element={<Legal kind="privacy" />} />
             <Route path="*" element={<NotFound />} />
           </Routes>
         </Suspense>

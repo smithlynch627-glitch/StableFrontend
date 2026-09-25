@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAccount } from 'wagmi';
 import { useI18n } from '../i18n';
 import { eth, tokenLabel } from '../lib/format';
+import { useMoney } from '../lib/currency';
 import type { Token } from '../lib/types';
 import { TokenArt } from './Art';
 import { IconCheck } from './Icons';
@@ -15,6 +16,7 @@ export function NftCard({
   token: Token; collection: ColLike; sweeping?: boolean; selected?: boolean; onToggle?: () => void; onQuickSelect?: () => void; showCollection?: boolean;
 }) {
   const { t } = useI18n();
+  const { money } = useMoney();
   const nav = useNavigate();
   const trade = useTrade();
   const { address } = useAccount();
@@ -67,9 +69,9 @@ export function NftCard({
       <div className="nft-card__body">
         {showCollection && <div className="tiny muted" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{collection.name}</div>}
         <div className="nft-card__name" title={token.name || `#${token.token_id}`}>{tokenLabel(token.name, token.token_id)}</div>
-        <div className="nft-card__price">{listed ? `${eth(token.listing_price_wei)} ETH` : <span className="muted small" style={{ fontWeight: 600 }}>{t('common.notListed')}</span>}</div>
+        <div className="nft-card__price" title={listed ? `${eth(token.listing_price_wei)} ETH` : undefined}>{listed ? money(token.listing_price_wei) : <span className="muted small" style={{ fontWeight: 600 }}>{t('common.notListed')}</span>}</div>
         <div className="nft-card__meta">
-          <span>{token.last_sale_wei ? t('common.lastSale', { price: `${eth(token.last_sale_wei)} ETH` }) : '\u00a0'}</span>
+          <span>{token.last_sale_wei ? t('common.lastSale', { price: money(token.last_sale_wei) }) : '\u00a0'}</span>
           {mine && <span className="strong" style={{ color: 'var(--fg)' }}>{t('common.you')}</span>}
         </div>
       </div>

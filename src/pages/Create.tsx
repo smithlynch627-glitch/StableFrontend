@@ -7,8 +7,9 @@ import { useAppConfig } from '../lib/appConfig';
 import { createCollection, type CreateForm } from '../lib/actions';
 import { eth, num, toWei } from '../lib/format';
 import type { Collection } from '../lib/types';
-import { IconAlert, IconCheck, IconPlus } from '../components/Icons';
-import { IpfsFolderUpload, readAddressFile } from '../components/IpfsUpload';
+import { IconAlert, IconCheck, IconLock } from '../components/Icons';
+import { IpfsFolderUpload } from '../components/IpfsUpload';
+import { PhaseListEditor, addressesIn, defaultDrafts, validateDrafts, type PhaseDraft } from '../components/PhaseEditor';
 import { ImageField, MetadataCheck, PreRevealPicker } from '../components/CreateArt';
 import { RunnerStatus, useRunner } from '../components/trade';
 import { Modal } from '../components/ui';
@@ -16,22 +17,6 @@ import { useWalletUI } from '../components/wallet';
 
 const STEPS: DictKey[] = ['create.stepDetails', 'create.stepSupply', 'create.stepPhases', 'create.stepEarnings', 'create.stepReview'];
 const ADDR = /^0x[0-9a-fA-F]{40}$/;
-
-const pad = (n: number) => String(n).padStart(2, '0');
-function localInput(d: Date) {
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-}
-const parseList = (text: string) => text.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean);
-
-type PhaseForm = {
-  name: string; start: string; end: string; priceEth: string; maxPerWallet: number; useAllowlist: boolean; allowlist: string[]; allowlistText: string;
-};
-
-function newPhase(i: number): PhaseForm {
-  const start = new Date(Date.now() + (i === 0 ? 3600e3 : 86400e3 * (i + 1)));
-  const end = new Date(start.getTime() + 86400e3 * (i === 0 ? 1 : 7));
-  return { name: i === 0 ? 'Allowlist' : 'Public', start: localInput(start), end: localInput(end), priceEth: '0.0002', maxPerWallet: i === 0 ? 2 : 10, useAllowlist: i === 0, allowlist: [], allowlistText: '' };
-}
 
 export default function Create() {
   const { t, lang } = useI18n();
@@ -50,9 +35,8 @@ export default function Create() {
     name: '', symbol: '', description: '', imageUrl: null as string | null, bannerUrl: null as string | null, twitter: '', website: '',
     discord: '', telegram: '', maxSupply: '', baseUri: '', revealLater: true, unrevealedUri: '', royaltyPct: '5', royaltyReceiver: '', payoutAddress: '',
   });
-  const [phases, setPhases] = useState<PhaseForm[]>([newPhase(0), newPhase(1)]);
+  const [phases, setPhases] = useState<PhaseDraft[]>(defaultDrafts);
   const set = <K extends keyof typeof f>(k: K, v: (typeof f)[K]) => setF((s) => ({ ...s, [k]: v }));
-  const setPhase = (i: number, patch: Partial<PhaseForm>) => setPhases((ps) => ps.map((p, j) => (j === i ? { ...p, ...patch } : p)));
 
   function validate(s: number): string | null {
     if (s === 0) {
@@ -72,12 +56,8 @@ export default function Create() {
       if (!f.revealLater && !metaOk) return t('meta.required');
     }
     if (s === 2) {
-      for (const [i, p] of phases.entries()) {
-        const start = new Date(p.start).getTime();
-        const end = p.end ? new Date(p.end).getTime() : Infinity;
-        if (!p.start || Number.isNaN(start) || end <= start || toWei(p.priceEth || '0') === null) return t('create.errPhase', { n: i + 1 });
-        if (p.useAllowlist && !parseList(p.allowlistText).some((a) => ADDR.test(a))) return t('create.errAllowlist', { n: i + 1 });
-      }
+      const e = validateDrafts(phases, t);
+      if (e) return e;
     }
     if (s === 3) {
       const r = Number(f.royaltyPct);
@@ -113,16 +93,17 @@ export default function Create() {
       twitter: f.twitter.trim(), website: f.website.trim(), discord: f.discord.trim(), telegram: f.telegram.trim(), maxSupply: Number(f.maxSupply), baseUri: f.baseUri, revealLater: f.revealLater,
       unrevealedUri: f.unrevealedUri, royaltyBps: Math.round(Number(f.royaltyPct) * 100), royaltyReceiver: f.royaltyReceiver || address || '',
       payoutAddress: f.payoutAddress || address || '',
+      // Public is always the last phase and open to everyone (the contract enforces this too).
       phases: phases.map((p) => ({
-        name: p.name, start: p.start, end: p.end, priceWei: toWei(p.priceEth || '0') ?? 0n, maxPerWallet: p.maxPerWallet,
-        useAllowlist: p.useAllowlist, allowlist: p.useAllowlist ? parseList(p.allowlistText).filter((a) => ADDR.test(a)) : [],
+        name: p.isPublic ? 'Public' : p.name.trim(), start: p.start, end: p.end, priceWei: toWei(p.price || '0') ?? 0n, maxPerWallet: Number(p.max || 0),
+        useAllowlist: p.mode === 'new', allowlist: p.mode === 'new' ? addressesIn(p.list) : [],
       })),
     };
     const col = await runner.run((ctx) => createCollection(ctx, form));
     if (col) setCreated(col);
   }
 
-  const lastPrice = toWei(phases[phases.length - 1]?.priceEth || '0') ?? 0n;
+  const lastPrice = toWei(phases[phases.length - 1]?.price || '0') ?? 0n;
   const gross = lastPrice * BigInt(Number(f.maxSupply) || 0);
   const mintFeeBps = cfg.mintFeeBps ?? 1000;
   const platformPct = mintFeeBps / 100;
@@ -212,40 +193,8 @@ export default function Create() {
 
           {step === 2 && (
             <>
-              {phases.map((p, i) => {
-                const list = parseList(p.allowlistText);
-                const valid = list.filter((a) => ADDR.test(a)).length;
-                return (
-                  <div className="phase-editor" key={i}>
-                    <div className="row" style={{ justifyContent: 'space-between' }}>
-                      <span className="strong">{i + 1}. {p.name || t('create.phaseName')}</span>
-                      {phases.length > 1 && <button className="btn btn--ghost btn--sm" onClick={() => setPhases((ps) => ps.filter((_, j) => j !== i))}>{t('create.removePhase')}</button>}
-                    </div>
-                    <div className="grid-3">
-                      <div className="field"><label>{t('create.phaseName')}</label><input className="input" maxLength={32} value={p.name} onChange={(e) => setPhase(i, { name: e.target.value })} /></div>
-                      <div className="field"><label>{t('create.priceEth')}</label><input className="input" inputMode="decimal" value={p.priceEth} onChange={(e) => setPhase(i, { priceEth: e.target.value.replace(',', '.').replace(/[^0-9.]/g, '') })} /></div>
-                      <div className="field"><label>{t('create.maxPerWallet')}</label><input className="input" inputMode="numeric" value={p.maxPerWallet || ''} onChange={(e) => setPhase(i, { maxPerWallet: Number(e.target.value.replace(/\D/g, '')) })} /></div>
-                    </div>
-                    <div className="grid-2">
-                      <div className="field"><label>{t('create.start')}</label><input className="input" type="datetime-local" value={p.start} onChange={(e) => setPhase(i, { start: e.target.value })} /></div>
-                      <div className="field"><label>{t('create.end')}</label><input className="input" type="datetime-local" value={p.end} onChange={(e) => setPhase(i, { end: e.target.value })} /></div>
-                    </div>
-                    <label className="checkbox"><input type="checkbox" className="switch" checked={p.useAllowlist} onChange={(e) => setPhase(i, { useAllowlist: e.target.checked })} />{t('create.useAllowlist')}</label>
-                    {p.useAllowlist && (
-                      <div className="field">
-                        <label>{t('create.allowlist')}</label>
-                        <textarea className="textarea" value={p.allowlistText} onChange={(e) => setPhase(i, { allowlistText: e.target.value })} placeholder="0x..." style={{ fontSize: 13 }} />
-                        <label className="btn btn--sm btn--outline" style={{ justifySelf: 'start', cursor: 'pointer' }}>
-                          {t('art.csv')}
-                          <input type="file" hidden accept=".csv,.txt,text/csv,text/plain" onChange={async (e) => { const file = e.target.files?.[0]; if (file) setPhase(i, { allowlistText: (await readAddressFile(file)).join('\n') }); }} />
-                        </label>
-                        <span className="hint">{t('create.allowlistCount', { n: valid })}{list.length > valid ? `. ${t('create.allowlistInvalid', { n: list.length - valid })}` : ''}</span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-              {phases.length < 5 && <button className="btn btn--outline" style={{ justifySelf: 'start' }} onClick={() => setPhases((ps) => [...ps, newPhase(ps.length)])}><IconPlus size={16} />{t('create.addPhase')}</button>}
+              <p className="small soft" style={{ margin: 0 }}>{t('phase.publicHint')}</p>
+              <PhaseListEditor value={phases} onChange={setPhases} />
             </>
           )}
 
@@ -296,7 +245,14 @@ export default function Create() {
                 {f.discord && <div><span className="muted">{t('create.discord')}</span><span className="strong ellipsis">{f.discord}</span></div>}
                 {f.telegram && <div><span className="muted">{t('create.telegram')}</span><span className="strong ellipsis">{f.telegram}</span></div>}
                 {phases.map((p, i) => (
-                  <div key={i}><span className="muted">{i + 1}. {p.name}</span><span className="row-wrap" style={{ justifyContent: 'flex-end', gap: 6 }}><span className="pill">{Number(p.priceEth) ? `${p.priceEth} ETH` : t('lp.free')}</span><span className="pill pill--outline">{p.maxPerWallet ? t('drop.limit', { n: p.maxPerWallet }) : t('drop.noLimit')}</span>{p.useAllowlist && <span className="pill pill--outline">{t('drop.allowlist')}</span>}</span></div>
+                  <div key={p.key}>
+                    <span className="muted row" style={{ gap: 6 }}>{p.isPublic && <IconLock size={13} />}{i + 1}. {p.isPublic ? t('phase.public') : p.name}</span>
+                    <span className="row-wrap" style={{ justifyContent: 'flex-end', gap: 6 }}>
+                      <span className="pill">{Number(p.price) ? `${p.price} ETH` : t('lp.free')}</span>
+                      <span className="pill pill--outline">{Number(p.max) ? t('drop.limit', { n: Number(p.max) }) : t('drop.noLimit')}</span>
+                      <span className={`pill pill--outline ${p.mode === 'new' ? '' : 'pill--good'}`}>{p.mode === 'new' ? t('phase.allowlist') : t('phase.open')}</span>
+                    </span>
+                  </div>
                 ))}
                 <div><span className="muted">{t('create.royalty')}</span><span className="strong">{f.royaltyPct}%</span></div>
                 <div><span className="muted">{t('drop.platformFee')}</span><span className="strong">{platformPct}%</span></div>

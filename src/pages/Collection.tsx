@@ -1,16 +1,20 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
 import { useAccount } from 'wagmi';
 import { useI18n } from '../i18n';
 import { SocialIcon } from '../components/Social';
 import type { DictKey } from '../i18n/en';
 import { api } from '../lib/api';
-import { eth, num, short, shortId, timeAgo } from '../lib/format';
+import { eth, num, short, shortId, timeAgo, tokenLabel } from '../lib/format';
+import { useMoney } from '../lib/currency';
 import type { Activity, Collection, DropState, Order, Token, TraitGroup } from '../lib/types';
-import { Avatar, CollectionAvatar, CollectionBanner } from '../components/Art';
+import { Avatar, CollectionAvatar, CollectionBanner, TokenArt } from '../components/Art';
+import { HoldersTab } from '../components/collection/HoldersTab';
+import { AnalyticsTab } from '../components/collection/AnalyticsTab';
+import { AboutTab } from '../components/collection/AboutTab';
 import { ActivityList } from '../components/ActivityList';
-import { IconAlert, IconChevron, IconClose, IconCopy, IconExternal, IconFilter, IconGridLg, IconGridSm, IconSearch, IconShare, IconSweep } from '../components/Icons';
+import { IconAlert, IconChart, IconCheck, IconChevron, IconClose, IconCopy, IconExternal, IconFilter, IconGridLg, IconGridSm, IconList, IconSearch, IconShare, IconSweep } from '../components/Icons';
 import { BackButton } from '../components/BackButton';
 import { SocialLink } from '../components/Social';
 import { useAppConfig } from '../lib/appConfig';
@@ -18,19 +22,22 @@ import { NftCard } from '../components/NftCard';
 import { useTrade } from '../components/trade';
 import { Badge, EmptyState, GridSkeleton, Skeleton, Tabs, useToast } from '../components/ui';
 
-type Tab = 'items' | 'offers' | 'activity';
+type Tab = 'items' | 'offers' | 'activity' | 'holders' | 'analytics' | 'about';
+const TABS: Tab[] = ['items', 'offers', 'activity', 'holders', 'analytics', 'about'];
 
 export default function CollectionPage() {
   const { slug = '' } = useParams();
   const { t } = useI18n();
-  const [tab, setTab] = useState<Tab>('items');
+  const [params, setParams] = useSearchParams();
+  const tab: Tab = TABS.includes(params.get('tab') as Tab) ? (params.get('tab') as Tab) : 'items';
+  const setTab = (next: Tab) => {
+    setParams(next === 'items' ? {} : { tab: next }, { replace: true });
+    if (next !== tab) document.querySelector('.col-tabs')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  };
   const q = useQuery({
     queryKey: ['collection', slug.toLowerCase()],
     queryFn: () => api.get<{ collection: Collection; drop: DropState | null }>(`/collections/${slug}`),
   });
-  useEffect(() => {
-    setTab('items');
-  }, [slug]);
 
   if (q.isLoading) return <div className="page container"><Skeleton h={260} r={14} /><div style={{ height: 20 }} /><GridSkeleton /></div>;
   if (!q.data) return <div className="page container"><div className="back-row"><BackButton fallback="/explore" /></div><EmptyState title={t('col.notFound')} action={<Link className="btn" to="/explore">{t('nav.explore')}</Link>} /></div>;
@@ -41,18 +48,28 @@ export default function CollectionPage() {
       <div className="col-banner"><div className="back-float"><BackButton fallback="/explore" /></div><CollectionBanner collection={c} /></div>
       <div className="container">
         <Header c={c} drop={drop} />
-        <Tabs<Tab>
-          value={tab}
-          onChange={setTab}
-          tabs={[
-            { id: 'items', label: t('col.items'), count: c.total_supply },
-            { id: 'offers', label: t('col.offers') },
-            { id: 'activity', label: t('col.activity') },
-          ]}
-        />
-        {tab === 'items' && <ItemsMarket c={c} />}
-        {tab === 'offers' && <OffersTab c={c} />}
-        {tab === 'activity' && <ActivityTab collection={c.address} />}
+        <div className="col-tabs">
+          <Tabs<Tab>
+            value={tab}
+            onChange={setTab}
+            tabs={[
+              { id: 'items', label: t('col.items'), count: c.total_supply },
+              { id: 'offers', label: t('col.offers') },
+              { id: 'activity', label: t('col.activity') },
+              { id: 'holders', label: t('col.holders'), count: c.owners_count || undefined },
+              { id: 'analytics', label: t('col.analytics') },
+              { id: 'about', label: t('col.about') },
+            ]}
+          />
+        </div>
+        <div className="tab-panel" key={tab}>
+          {tab === 'items' && <ItemsMarket c={c} onAnalytics={() => setTab('analytics')} />}
+          {tab === 'offers' && <OffersTab c={c} />}
+          {tab === 'activity' && <ActivityTab collection={c.address} />}
+          {tab === 'holders' && <HoldersTab c={c} />}
+          {tab === 'analytics' && <AnalyticsTab c={c} />}
+          {tab === 'about' && <AboutTab c={c} />}
+        </div>
         <div style={{ height: 90 }} />
       </div>
     </>
@@ -62,14 +79,16 @@ export default function CollectionPage() {
 function Header({ c, drop }: { c: Collection; drop: DropState | null }) {
   const { t, lang } = useI18n();
   const trade = useTrade();
+  const { money, usd, isUsd } = useMoney();
   const { address } = useAccount();
   const isCreator = !!address && c.creator === address.toLowerCase();
   const [more, setMore] = useState(false);
-  const stats: [string, string][] = [
-    [t('common.floor'), c.floor_wei ? `${eth(c.floor_wei)} ETH` : '—'],
-    [t('common.bestOffer'), c.best_offer_wei ? `${eth(c.best_offer_wei)} WETH` : '—'],
-    [t('common.volume24h'), `${eth(c.volume_24h_wei)} ETH`],
-    [t('common.volume'), `${eth(c.volume_wei)} ETH`],
+  const stats: [string, ReactNode][] = [
+    // The floor always stays in ETH (with the USD value underneath when USD is selected).
+    [t('common.floor'), c.floor_wei ? <>{eth(c.floor_wei)} ETH{isUsd && <span className="stat__sub">{usd(c.floor_wei)}</span>}</> : '—'],
+    [t('common.bestOffer'), c.best_offer_wei ? money(c.best_offer_wei, 'WETH') : '—'],
+    [t('common.volume24h'), money(c.volume_24h_wei)],
+    [t('common.volume'), money(c.volume_wei)],
     [t('common.owners'), num(c.owners_count, lang)],
     [t('common.listed'), c.total_supply ? `${((c.listed_count / c.total_supply) * 100).toFixed(1)}%` : '—'],
   ];
@@ -78,11 +97,11 @@ function Header({ c, drop }: { c: Collection; drop: DropState | null }) {
       <div className="col-head__top">
         <div className="col-avatar" style={{ position: 'relative' }}><CollectionAvatar collection={c} /></div>
         <div className="col-head__title">
-          <div className="row" style={{ gap: 8 }}>
+          <div className="row" style={{ gap: 8, minWidth: 0 }}>
             <h1 className="h1">{c.name}</h1>
             <Badge official={c.is_official} verified={c.verified} size={24} />
           </div>
-          <div className="row-wrap small soft">
+          <div className="row-wrap small soft col-head__meta">
             {c.is_official && <span className="pill pill--solid">{t('common.official')}</span>}
             {c.creator && (
               <Link to={`/profile/${c.creator}`} className="row" style={{ gap: 6 }}>
@@ -125,10 +144,21 @@ const SORTS: [string, DictKey][] = [
   ['price_asc', 'col.sortPriceAsc'], ['price_desc', 'col.sortPriceDesc'], ['recent', 'col.sortRecent'], ['rarity', 'col.sortRarity'], ['id_asc', 'col.sortId'],
 ];
 const PAGE = 40;
+type View = 'lg' | 'sm' | 'list';
+const VIEW_KEY = 'stable.collectionView';
+const readView = (): View => {
+  try {
+    const v = localStorage.getItem(VIEW_KEY);
+    return v === 'sm' || v === 'list' ? v : 'lg';
+  } catch {
+    return 'lg';
+  }
+};
 
-function ItemsMarket({ c }: { c: Collection }) {
+function ItemsMarket({ c, onAnalytics }: { c: Collection; onAnalytics: () => void }) {
   const { t, lang } = useI18n();
   const trade = useTrade();
+  const { money } = useMoney();
   const { address } = useAccount();
   const [status, setStatus] = useState<'all' | 'listed'>('all');
   const [sort, setSort] = useState('price_asc');
@@ -137,7 +167,11 @@ function ItemsMarket({ c }: { c: Collection }) {
   const [minMax, setMinMax] = useState({ min: '', max: '' });
   const [applied, setApplied] = useState({ min: '', max: '' });
   const [traits, setTraits] = useState<Record<string, string[]>>({});
-  const [grid, setGrid] = useState<'lg' | 'sm'>('lg');
+  const [view, setViewState] = useState<View>(readView);
+  const setView = (v: View) => {
+    setViewState(v);
+    try { localStorage.setItem(VIEW_KEY, v); } catch {}
+  };
   const [filtersOpen, setFiltersOpen] = useState(() => window.innerWidth > 1100);
   const [sweeping, setSweeping] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -182,6 +216,7 @@ function ItemsMarket({ c }: { c: Collection }) {
   );
   const selectedTokens = sweepable.filter((x) => selected.has(x.token_id));
   const selectedTotal = selectedTokens.reduce((s, x) => s + BigInt(x.listing_price_wei || 0), 0n);
+  const toggleSelect = (id: string) => setSelected((s) => { const n = new Set(s); n.has(id) ? n.delete(id) : n.add(id); return n; });
 
   function toggleTrait(type: string, value: string) {
     setTraits((prev) => {
@@ -221,6 +256,7 @@ function ItemsMarket({ c }: { c: Collection }) {
                 <input className="input" inputMode="decimal" placeholder={t('col.min')} value={minMax.min} onChange={(e) => setMinMax((m) => ({ ...m, min: e.target.value }))} style={{ height: 40 }} />
                 <input className="input" inputMode="decimal" placeholder={t('col.max')} value={minMax.max} onChange={(e) => setMinMax((m) => ({ ...m, max: e.target.value }))} style={{ height: 40 }} />
               </div>
+              <span className="tiny muted">ETH</span>
               <button className="btn btn--outline btn--sm" onClick={() => { setApplied(minMax); if (minMax.min || minMax.max) setStatus('listed'); }}>{t('col.apply')}</button>
             </div>
           </details>
@@ -249,7 +285,7 @@ function ItemsMarket({ c }: { c: Collection }) {
       )}
       {filtersOpen && window.innerWidth <= 1100 && <div className="drawer-backdrop" style={{ zIndex: 89 }} onClick={() => setFiltersOpen(false)} />}
 
-      <div>
+      <div style={{ minWidth: 0 }}>
         <div className="toolbar">
           <button className="icon-btn" aria-pressed={filtersOpen} onClick={() => setFiltersOpen((o) => !o)} aria-label={t('col.filters')}>
             <IconFilter size={17} />
@@ -258,16 +294,15 @@ function ItemsMarket({ c }: { c: Collection }) {
             <span className="prefix-icon"><IconSearch size={16} /></span>
             <input className="input" style={{ height: 42 }} placeholder={t('col.searchId')} value={search} onChange={(e) => setSearch(e.target.value)} />
           </div>
-          <select className="select" style={{ width: 'auto', height: 42 }} value={sweeping ? 'price_asc' : sort} onChange={(e) => setSort(e.target.value)} disabled={sweeping} aria-label="Sort">
+          <select className="select toolbar__sort" value={sweeping ? 'price_asc' : sort} onChange={(e) => setSort(e.target.value)} disabled={sweeping} aria-label={t('col.sort')}>
             {SORTS.map(([id, key]) => <option key={id} value={id}>{t(key)}</option>)}
           </select>
-          <div className="segmented hide-sm">
-            <button aria-pressed={grid === 'lg'} onClick={() => setGrid('lg')} aria-label={t('col.large')}><IconGridLg size={15} /></button>
-            <button aria-pressed={grid === 'sm'} onClick={() => setGrid('sm')} aria-label={t('col.small')}><IconGridSm size={15} /></button>
-          </div>
+          <ViewMenu value={view} onChange={setView} />
+          <button className="btn btn--outline btn--sm toolbar__btn" onClick={onAnalytics}>
+            <IconChart size={16} /><span className="hide-sm">{t('col.analytics')}</span>
+          </button>
           <button
-            className={`btn btn--sm ${sweeping ? '' : 'btn--outline'}`}
-            style={{ height: 42 }}
+            className={`btn btn--sm toolbar__btn ${sweeping ? '' : 'btn--outline'}`}
             onClick={() => { setSweeping((s) => !s); setSelected(new Set()); }}
             aria-pressed={sweeping}
             disabled={c.tradable === false}
@@ -296,8 +331,10 @@ function ItemsMarket({ c }: { c: Collection }) {
           <GridSkeleton count={12} />
         ) : tokens.length === 0 ? (
           <EmptyState title={t('col.noItems')} action={activeCount ? <button className="btn btn--outline" onClick={clearAll}>{t('col.clearFilters')}</button> : undefined} />
+        ) : view === 'list' ? (
+          <TokenTable c={c} tokens={tokens} sweeping={sweeping} selected={selected} onToggle={toggleSelect} />
         ) : (
-          <div className={`nft-grid ${grid === 'sm' ? 'nft-grid--small' : ''}`}>
+          <div className={`nft-grid ${view === 'sm' ? 'nft-grid--small' : ''}`}>
             {tokens.map((tok) => (
               <NftCard
                 key={tok.token_id}
@@ -305,7 +342,7 @@ function ItemsMarket({ c }: { c: Collection }) {
                 collection={c}
                 sweeping={sweeping}
                 selected={selected.has(tok.token_id)}
-                onToggle={() => setSelected((s) => { const n = new Set(s); n.has(tok.token_id) ? n.delete(tok.token_id) : n.add(tok.token_id); return n; })}
+                onToggle={() => toggleSelect(tok.token_id)}
                 onQuickSelect={() => { setSweeping(true); setSelected(new Set([tok.token_id])); }}
               />
             ))}
@@ -322,7 +359,7 @@ function ItemsMarket({ c }: { c: Collection }) {
             <span className="tiny" style={{ opacity: 0.7 }}>{t('col.sweepHint')}</span>
           </div>
           <input type="range" min={0} max={sweepable.length} value={selected.size} onChange={(e) => setSweepCount(Number(e.target.value))} aria-label={t('col.sweep')} />
-          <span className="strong mono-num nowrap">{eth(selectedTotal)} ETH</span>
+          <span className="strong mono-num nowrap" title={`${eth(selectedTotal)} ETH`}>{money(selectedTotal)}</span>
           <div className="sweep-bar__actions">
             <button className="btn btn--ghost sweep-bar__cancel" onClick={() => { setSweeping(false); setSelected(new Set()); }}>{t('col.cancelSweep')}</button>
             <button className="btn" disabled={!selected.size} onClick={() => trade.buy(c.address, selectedTokens)}>
@@ -331,6 +368,102 @@ function ItemsMarket({ c }: { c: Collection }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/** "View" dropdown: large grid, small grid or list. */
+function ViewMenu({ value, onChange }: { value: View; onChange: (v: View) => void }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
+    document.addEventListener('mousedown', close);
+    return () => document.removeEventListener('mousedown', close);
+  }, []);
+  const options: [View, ReactNode, DictKey, DictKey][] = [
+    ['lg', <IconGridLg size={16} />, 'col.viewLarge', 'col.viewLargeHint'],
+    ['sm', <IconGridSm size={16} />, 'col.viewSmall', 'col.viewSmallHint'],
+    ['list', <IconList size={16} />, 'col.viewList', 'col.viewListHint'],
+  ];
+  const current = options.find((o) => o[0] === value)!;
+  return (
+    <div className="dropdown" ref={ref}>
+      <button className="btn btn--outline btn--sm toolbar__btn view-btn" onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open}>
+        {current[1]}<span className="hide-sm">{t(current[2])}</span><IconChevron size={14} />
+      </button>
+      {open && (
+        <div className="dropdown__menu view-menu" role="listbox" aria-label={t('col.view')}>
+          <div className="view-menu__head tiny muted">{t('col.view')}</div>
+          {options.map(([id, icon, label, hint]) => (
+            <button key={id} role="option" aria-selected={value === id} onClick={() => { onChange(id); setOpen(false); }}>
+              <span className="view-menu__icon">{icon}</span>
+              <span style={{ display: 'grid', flex: 1, textAlign: 'left' }}>
+                <span className="strong">{t(label)}</span>
+                <span className="tiny muted">{t(hint)}</span>
+              </span>
+              {value === id && <IconCheck size={16} />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** List view: one row per item with price, last sale, owner and a quick action. */
+function TokenTable({ c, tokens, sweeping, selected, onToggle }: { c: Collection; tokens: Token[]; sweeping: boolean; selected: Set<string>; onToggle: (id: string) => void }) {
+  const { t } = useI18n();
+  const { money } = useMoney();
+  const trade = useTrade();
+  const nav = useNavigate();
+  const { address } = useAccount();
+  const me = address?.toLowerCase();
+  return (
+    <div className="table-wrap token-table">
+      <table className="table">
+        <thead>
+          <tr>
+            <th>{t('common.item')}</th>
+            <th>{t('common.price')}</th>
+            <th className="hide-sm">{t('col.lastSale')}</th>
+            <th className="hide-md">{t('col.rarity')}</th>
+            <th className="hide-sm">{t('common.owner')}</th>
+            <th />
+          </tr>
+        </thead>
+        <tbody>
+          {tokens.map((tok) => {
+            const mine = tok.owner?.toLowerCase() === me;
+            const listed = !!tok.listing_hash;
+            const selectable = sweeping && listed && !mine;
+            return (
+              <tr key={tok.token_id} className={`clickable ${selected.has(tok.token_id) ? 'is-selected' : ''}`}
+                onClick={() => (sweeping ? selectable && onToggle(tok.token_id) : nav(`/item/${c.slug}/${tok.token_id}`))}>
+                <td>
+                  <span className="cell-item">
+                    {sweeping && <span className={`tick ${selected.has(tok.token_id) ? 'is-on' : ''} ${selectable ? '' : 'is-off'}`}>{selected.has(tok.token_id) && <IconCheck size={12} />}</span>}
+                    <span className="thumb thumb--sm" style={{ position: 'relative' }}><TokenArt collection={c} token={tok} /></span>
+                    <span className="strong ellipsis">{tokenLabel(tok.name, tok.token_id)}</span>
+                  </span>
+                </td>
+                <td className="strong mono-num">{listed ? money(tok.listing_price_wei) : <span className="muted">—</span>}</td>
+                <td className="hide-sm mono-num muted">{tok.last_sale_wei ? money(tok.last_sale_wei) : '—'}</td>
+                <td className="hide-md mono-num">{tok.rarity_rank ? `#${tok.rarity_rank.toLocaleString()}` : '—'}</td>
+                <td className="hide-sm">{mine ? t('common.you') : <Link className="link" to={`/profile/${tok.owner}`} onClick={(e) => e.stopPropagation()}>{short(tok.owner)}</Link>}</td>
+                <td style={{ textAlign: 'right' }}>
+                  {!sweeping && c.tradable !== false && (listed && !mine ? (
+                    <button className="btn btn--sm" onClick={(e) => { e.stopPropagation(); trade.buy(c.address, [tok]); }}>{t('col.buyNow')}</button>
+                  ) : mine ? (
+                    <button className="btn btn--outline btn--sm" onClick={(e) => { e.stopPropagation(); trade.list(c.address, tok); }}>{listed ? t('item.editPrice') : t('item.list')}</button>
+                  ) : null)}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
     </div>
   );
 }
@@ -364,7 +497,7 @@ function MoreMenu({ c }: { c: Collection }) {
       </button>
       {open && (
         <div className="dropdown__menu menu-list" role="menu" style={{ right: 'auto', left: 0 }}>
-          <a href={`${cfg.explorerUrl}/address/${c.address}`} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}><IconExternal size={16} />{t('col.viewOnChain')}</a>
+          <a href={`${cfg.explorerUrl}/token/${c.address}`} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}><IconExternal size={16} />{t('col.viewOnChain')}</a>
           <button onClick={copy}><IconCopy size={16} />{t('col.copyLink')}</button>
           <button onClick={share}><IconShare size={16} />{t('col.share')}</button>
           <a href={`https://x.com/intent/tweet?text=${encodeURIComponent(c.name)}&url=${encodeURIComponent(link)}`} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}><SocialIcon kind="x" size={14} />{t('col.shareX')}</a>
@@ -377,6 +510,7 @@ function MoreMenu({ c }: { c: Collection }) {
 
 function OffersTab({ c }: { c: Collection }) {
   const { t, lang } = useI18n();
+  const { money } = useMoney();
   const trade = useTrade();
   const { address } = useAccount();
   const offers = useQuery({ queryKey: ['offers', c.address], queryFn: () => api.get<{ offers: Order[] }>(`/collections/${c.address}/offers`) });
@@ -398,7 +532,7 @@ function OffersTab({ c }: { c: Collection }) {
             const mine = address && o.maker === address.toLowerCase();
             return (
               <tr key={o.hash}>
-                <td className="strong mono-num">{eth(o.price_wei)} WETH</td>
+                <td className="strong mono-num">{money(o.price_wei, 'WETH')}</td>
                 <td>{o.kind === 'collection_offer' ? <span className="pill">{t('col.collectionOffer')}</span> : <Link className="link" to={`/item/${c.slug}/${o.token_id}`}>#{shortId(o.token_id)}</Link>}</td>
                 <td><Link className="link" to={`/profile/${o.maker}`}>{mine ? t('common.you') : short(o.maker)}</Link></td>
                 <td className="muted">{timeAgo(o.end_time, lang)}</td>

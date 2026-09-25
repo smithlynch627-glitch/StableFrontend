@@ -2,18 +2,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { isAddress, zeroHash, type Address } from 'viem';
+import { formatEther, isAddress, zeroHash, type Address } from 'viem';
 import { useAccount, useBalance, useReadContracts } from 'wagmi';
 import { activeChain } from '../config';
 import { useI18n } from '../i18n';
 import type { DictKey } from '../i18n/en';
 import { api } from '../lib/api';
 import { collectionOwnerAbi } from '../lib/abis';
-import { eth, num, toWei } from '../lib/format';
+import { eth, num } from '../lib/format';
 import type { Collection, DropState } from '../lib/types';
 import { useAuthedApi, useTx } from '../lib/tx';
 import { CollectionAvatar } from '../components/Art';
-import { IpfsFolderUpload, PreRevealUpload, readAddressFile } from '../components/IpfsUpload';
+import { IpfsFolderUpload, PreRevealUpload } from '../components/IpfsUpload';
+import { IconAlert } from '../components/Icons';
+import { ChangeList } from '../components/PhaseChanges';
+import { PhaseListEditor, addressesIn, diffDrafts, draft, secToInput, toChainPhase, validateDrafts } from '../components/PhaseEditor';
 import { EmptyState, Skeleton, useToast } from '../components/ui';
 import { useWalletUI } from '../components/wallet';
 import { BackButton } from '../components/BackButton';
@@ -21,13 +24,6 @@ import { BackButton } from '../components/BackButton';
 type Tab = 'overview' | 'phases' | 'metadata' | 'airdrop' | 'settings';
 type ChainPhase = { startTime: bigint; endTime: bigint; price: bigint; maxPerWallet: number; merkleRoot: `0x${string}` };
 
-const pad = (n: number) => String(n).padStart(2, '0');
-const toInput = (sec: bigint) => {
-  if (!sec) return '';
-  const d = new Date(Number(sec) * 1000);
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
-};
-const toSec = (v: string) => (v ? BigInt(Math.floor(new Date(v).getTime() / 1000)) : 0n);
 const ADDR = /^0x[0-9a-fA-F]{40}$/;
 
 export default function Studio() {
@@ -44,6 +40,8 @@ export default function Studio() {
     contracts: [
       ...fns.map((functionName) => ({ address: addr, abi: collectionOwnerAbi, functionName, chainId: activeChain.id })),
       { address: addr, abi: collectionOwnerAbi, functionName: 'royaltyInfo', args: [1n, 10_000n], chainId: activeChain.id },
+      { address: addr, abi: collectionOwnerAbi, functionName: 'version', chainId: activeChain.id },
+      { address: addr, abi: collectionOwnerAbi, functionName: 'phaseIds', chainId: activeChain.id },
     ] as any,
     query: { enabled: !!addr },
   });
@@ -59,6 +57,8 @@ export default function Studio() {
   const state = {
     revealed: Boolean(r(1)), frozen: Boolean(r(2)), paused: Boolean(r(3)), payout: String(r(4) || ''), contractUri: String(r(5) || ''),
     phases: (r(6) || []) as ChainPhase[], maxSupply: Number(r(7) || 0), minted: Number(r(8) || 0), royalty: r(9) as [string, bigint] | undefined,
+    // v1 contracts have no version(): the read fails and the Studio falls back to one transaction per phase.
+    v2: Number(r(10) ?? 0) >= 2, ids: r(11) ? (r(11) as readonly number[]).map(Number) : null,
   };
   const tabs: [Tab, DictKey][] = [['overview', 'studio.tabOverview'], ['phases', 'studio.tabPhases'], ['metadata', 'studio.tabMetadata'], ['airdrop', 'studio.tabAirdrop'], ['settings', 'studio.tabSettings']];
 
@@ -81,7 +81,7 @@ export default function Studio() {
         </nav>
         <div style={{ display: 'grid', gap: 22 }}>
           {tab === 'overview' && <Overview c={c} addr={addr!} s={state} />}
-          {tab === 'phases' && <Phases c={c} addr={addr!} phases={state.phases} names={q.data?.drop?.phases.map((p) => p.name) ?? []} />}
+          {tab === 'phases' && <Phases c={c} addr={addr!} phases={state.phases} ids={state.ids} v2={state.v2} names={q.data?.drop?.phases ?? []} />}
           {tab === 'metadata' && <Metadata c={c} addr={addr!} s={state} />}
           {tab === 'airdrop' && <Airdrop addr={addr!} left={state.maxSupply - state.minted} />}
           {tab === 'settings' && <Settings c={c} addr={addr!} s={state} />}
@@ -121,86 +121,107 @@ function Overview({ c, addr, s }: { c: Collection; addr: Address; s: S }) {
   );
 }
 
-function Phases({ c, addr, phases, names }: { c: Collection; addr: Address; phases: ChainPhase[]; names: string[] }) {
-  const { t } = useI18n();
-  return (
-    <>
-      {phases.map((p, i) => <PhaseForm key={`${i}-${p.merkleRoot}-${p.price}`} c={c} addr={addr} index={i} phase={p} name={names[i] || `Phase ${i + 1}`} allNames={names} />)}
-      {phases.length < 5 && <PhaseForm c={c} addr={addr} index={phases.length} name={`Phase ${phases.length + 1}`} allNames={names} />}
-      <p className="tiny muted">{t('fee.wallet')}</p>
-    </>
-  );
-}
-
-function PhaseForm({ c, addr, index, phase, name, allNames }: { c: Collection; addr: Address; index: number; phase?: ChainPhase; name: string; allNames: string[] }) {
+function Phases({ c, addr, phases, ids, v2, names }: { c: Collection; addr: Address; phases: ChainPhase[]; ids: number[] | null; v2: boolean; names: DropState['phases'] }) {
   const { t } = useI18n();
   const toast = useToast();
   const authed = useAuthedApi();
   const { busy, run } = useTx();
-  const gated = !!phase && phase.merkleRoot !== zeroHash;
-  const [f, setF] = useState({
-    name, start: phase ? toInput(phase.startTime) : '', end: phase ? toInput(phase.endTime) : '',
-    price: phase ? eth(phase.price, 10).replace(/,/g, '') : '0', max: phase ? String(phase.maxPerWallet || '') : '',
-    mode: (gated ? 'keep' : 'none') as 'keep' | 'new' | 'none', list: '',
-  });
-  const set = (k: keyof typeof f, v: string) => setF((x) => ({ ...x, [k]: v }));
-  const valid = useMemo(() => (f.list.match(/0x[0-9a-fA-F]{40}/g) || []).length, [f.list]);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const now = Date.now();
+
+  // Drafts built from the chain (the source of truth) + display names from the API (matched by phase id on v2).
+  const sig = JSON.stringify(phases, (_, v) => (typeof v === 'bigint' ? v.toString() : v)) + JSON.stringify(ids) + JSON.stringify(names.map((n) => [n.id, n.name]));
+  const initial = useMemo(() => phases.map((p, i) => {
+    const id = ids?.[i] ?? 0;
+    const meta = (id ? names.find((n) => n.id === id) : null) || names[i];
+    const gated = p.merkleRoot !== zeroHash;
+    const last = i === phases.length - 1;
+    return draft({
+      id, origin: i, name: meta?.name || (gated ? 'Allowlist' : `Phase ${i + 1}`),
+      start: secToInput(p.startTime), end: secToInput(p.endTime), price: formatEther(p.price), max: p.maxPerWallet ? String(p.maxPerWallet) : '',
+      mode: gated ? 'keep' : 'none', root: p.merkleRoot, isPublic: last && !gated,
+    });
+  }), [sig]); // eslint-disable-line react-hooks/exhaustive-deps
+  const [drafts, setDrafts] = useState(initial);
+  useEffect(() => setDrafts(initial), [initial]);
+
+  const changes = useMemo(() => diffDrafts(initial, drafts), [initial, drafts]);
+  const started = phases.some((p) => Number(p.startTime) * 1000 <= now);
+  const working = !!busy || !!saving;
 
   async function save() {
-    const price = toWei(f.price || '0');
-    if (price === null || !f.start || (f.end && toSec(f.end) <= toSec(f.start))) return toast(t('create.errPhase', { n: index + 1 }), 'error');
-    let root: `0x${string}` = f.mode === 'keep' && phase ? phase.merkleRoot : zeroHash;
-    let allowlistId: string | null = null;
-    if (f.mode === 'new') {
-      const list = f.list.match(/0x[0-9a-fA-F]{40}/g) || [];
-      if (!list.length) return toast(t('create.errAllowlist', { n: index + 1 }), 'error');
-      const al = await authed.post<{ id: string; root: `0x${string}` }>('/drops/allowlists', { addresses: list });
-      root = al.root;
-      allowlistId = al.id;
+    const problem = validateDrafts(drafts, t, { requirePublic: v2 });
+    if (problem) { setError(problem); return; }
+    setError(null);
+    try {
+      // 1) Upload any new allowlists first (they become merkle roots in the transaction).
+      const roots: `0x${string}`[] = [];
+      const listIds: (string | null)[] = [];
+      for (const d of drafts) {
+        if (d.mode === 'new') {
+          setSaving('allowlist');
+          const al = await authed.post<{ id: string; root: `0x${string}` }>('/drops/allowlists', { addresses: addressesIn(d.list) });
+          roots.push(al.root);
+          listIds.push(al.id);
+        } else {
+          roots.push(d.mode === 'keep' ? d.root : zeroHash);
+          listIds.push(null);
+        }
+      }
+      setSaving(null);
+      // 2) On-chain.
+      let txHash: string | undefined;
+      if (v2) {
+        const receipt = await run('phases', {
+          address: addr, abi: collectionOwnerAbi, functionName: 'setPhases',
+          args: [drafts.map((d, i) => toChainPhase(d, roots[i])), drafts.map((d) => d.id)],
+        }, t('phase.saved'));
+        if (!receipt) return;
+        txHash = receipt.transactionHash;
+      } else {
+        const edited = drafts.map((d, i) => ({ d, i })).filter(({ d }) => diffDrafts([initial[d.origin!]], [d]).length > 0);
+        for (const [k, { d, i }] of edited.entries()) {
+          setSaving(t('phase.saving', { n: k + 1, total: edited.length }));
+          const receipt = await run('phases', { address: addr, abi: collectionOwnerAbi, functionName: 'setPhase', args: [BigInt(d.origin!), toChainPhase(d, roots[i])] });
+          if (!receipt) return;
+          txHash = receipt.transactionHash;
+        }
+      }
+      // 3) Names and allowlist files (so the mint page can hand out proofs).
+      setSaving('names');
+      await authed.post('/drops', {
+        collection: c.address,
+        txHash,
+        phases: drafts.map((d, i) => ({ name: d.isPublic ? 'Public' : d.name.trim(), ...(listIds[i] ? { allowlistId: listIds[i] } : {}) })),
+      });
+    } catch (e: any) {
+      toast(e?.message || t('common.error'), 'error');
+    } finally {
+      setSaving(null);
     }
-    const ph = { startTime: toSec(f.start), endTime: toSec(f.end), price, maxPerWallet: Number(f.max || 0), merkleRoot: root };
-    const receipt = phase
-      ? await run('save', { address: addr, abi: collectionOwnerAbi, functionName: 'setPhase', args: [BigInt(index), ph] })
-      : await run('save', { address: addr, abi: collectionOwnerAbi, functionName: 'addPhase', args: [ph] });
-    if (!receipt) return;
-    const meta = [...allNames];
-    meta[index] = f.name;
-    await authed.post('/drops', { collection: c.address, phases: meta.map((n, i) => ({ name: n || `Phase ${i + 1}`, ...(i === index && allowlistId ? { allowlistId } : {}) })) }).catch(() => undefined);
   }
 
   return (
-    <div className="phase-editor">
-      <div className="row" style={{ justifyContent: 'space-between' }}>
-        <span className="strong">{index + 1}. {phase ? f.name : t('studio.addPhase')}</span>
-        {gated && <span className="pill">{t('drop.allowlist')}</span>}
-      </div>
-      <div className="grid-3">
-        <div className="field"><label>{t('create.phaseName')}</label><input className="input" maxLength={32} value={f.name} onChange={(e) => set('name', e.target.value)} /></div>
-        <div className="field"><label>{t('create.priceEth')}</label><input className="input" inputMode="decimal" value={f.price} onChange={(e) => set('price', e.target.value.replace(',', '.').replace(/[^0-9.]/g, ''))} /></div>
-        <div className="field"><label>{t('create.maxPerWallet')}</label><input className="input" inputMode="numeric" value={f.max} placeholder="0 = no limit" onChange={(e) => set('max', e.target.value.replace(/\D/g, ''))} /></div>
-      </div>
-      <div className="grid-2">
-        <div className="field"><label>{t('create.start')}</label><input className="input" type="datetime-local" value={f.start} onChange={(e) => set('start', e.target.value)} /></div>
-        <div className="field"><label>{t('create.end')}</label><input className="input" type="datetime-local" value={f.end} onChange={(e) => set('end', e.target.value)} /></div>
-      </div>
-      <div className="row-wrap">
-        {gated && <button type="button" className="chip" aria-pressed={f.mode === 'keep'} onClick={() => set('mode', 'keep')}>{t('studio.allowlistKeep')}</button>}
-        <button type="button" className="chip" aria-pressed={f.mode === 'new'} onClick={() => set('mode', 'new')}>{t('studio.allowlistNew')}</button>
-        <button type="button" className="chip" aria-pressed={f.mode === 'none'} onClick={() => set('mode', 'none')}>{t('studio.allowlistNone')}</button>
-      </div>
-      {f.mode === 'new' && (
-        <div className="field">
-          <textarea className="textarea" value={f.list} onChange={(e) => set('list', e.target.value)} placeholder="0x..." style={{ fontSize: 13 }} />
-          <div className="row" style={{ justifyContent: 'space-between' }}>
-            <span className="hint">{t('create.allowlistCount', { n: valid })}</span>
-            <label className="btn btn--sm btn--outline" style={{ cursor: 'pointer' }}>{t('art.csv')}
-              <input type="file" hidden accept=".csv,.txt" onChange={async (e) => { const file = e.target.files?.[0]; if (file) set('list', (await readAddressFile(file)).join('\n')); }} />
-            </label>
-          </div>
+    <>
+      <div className={`notice ${v2 ? '' : 'notice--strong'}`}><IconAlert size={16} />{v2 ? t('phase.oneTx') : t('phase.legacy')}</div>
+      <PhaseListEditor value={drafts} onChange={(next) => { setDrafts(next); setError(null); }} allowKeep locked={!v2} now={now} />
+      <section className="phase-review">
+        <header className="row" style={{ justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
+          <span className="strong">{t('phase.review')}</span>
+          {changes.length > 0 && <span className="pill pill--outline">{t('chg.count', { n: changes.length })}</span>}
+        </header>
+        {changes.length ? <ChangeList changes={changes} /> : <p className="small muted" style={{ margin: 0 }}>{t('phase.noChanges')}</p>}
+        {changes.length > 0 && started && <div className="notice"><IconAlert size={16} />{t('phase.liveWarn')}</div>}
+        {error && <div className="notice notice--strong"><IconAlert size={16} />{error}</div>}
+        <div className="row-wrap">
+          <button className="btn btn--lg" disabled={!changes.length || working} onClick={save}>{working && <span className="spinner" />}{t('phase.saveAll')}</button>
+          <button className="btn btn--outline btn--lg" disabled={!changes.length || working} onClick={() => { setDrafts(initial); setError(null); }}>{t('phase.reset')}</button>
+          {saving && saving !== 'allowlist' && saving !== 'names' && <span className="small soft">{saving}</span>}
         </div>
-      )}
-      <button className="btn" style={{ justifySelf: 'start' }} disabled={!!busy} onClick={save}>{busy && <span className="spinner" />}{phase ? t('studio.savePhase') : t('studio.addPhase')}</button>
-    </div>
+        <p className="tiny muted" style={{ margin: 0 }}>{t('fee.wallet')}</p>
+      </section>
+    </>
   );
 }
 

@@ -7,6 +7,7 @@ import App from './App';
 import { I18nProvider } from './i18n';
 import { AppConfigProvider } from './lib/appConfig';
 import { initWagmi, wagmiConfig } from './lib/wagmi';
+import { CurrencyProvider } from './lib/currency';
 import { API_URL, makeChain, setActiveChain } from './config';
 import type { AppConfig } from './lib/types';
 import { ToastProvider } from './components/ui';
@@ -44,6 +45,7 @@ function render() {
       <QueryClientProvider client={queryClient}>
         <I18nProvider>
           <AppConfigProvider>
+            <CurrencyProvider>
             <ToastProvider>
               <BrowserRouter>
                 <WalletProvider>
@@ -53,6 +55,7 @@ function render() {
                 </WalletProvider>
               </BrowserRouter>
             </ToastProvider>
+            </CurrencyProvider>
           </AppConfigProvider>
         </I18nProvider>
       </QueryClientProvider>

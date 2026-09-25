@@ -111,7 +111,8 @@ const ERROR_KEYS: Record<string, DictKey> = {
   SelfFill: 'err.SelfFill', NothingFilled: 'err.NothingFilled', ProceedsTooLow: 'err.FeeChanged', EnforcedPause: 'err.Paused',
   PhaseNotStarted: 'err.PhaseNotStarted', PhaseEnded: 'err.PhaseEnded', ExceedsMaxSupply: 'err.ExceedsMaxSupply',
   ExceedsWalletLimit: 'err.ExceedsWalletLimit', NotAllowlisted: 'err.NotAllowlisted', InvalidQuantity: 'err.InvalidQuantity',
-  InvalidConfig: 'err.InvalidConfig', ERC721InsufficientApproval: 'err.NotApproved', ERC721IncorrectOwner: 'err.NotOwner',
+  InvalidConfig: 'err.InvalidConfig', MintIsPaused: 'err.MintIsPaused', PublicPhaseRequired: 'err.PublicPhaseRequired',
+  PhasesOutOfOrder: 'err.PhasesOutOfOrder', InvalidPhase: 'err.InvalidPhase', ERC721InsufficientApproval: 'err.NotApproved', ERC721IncorrectOwner: 'err.NotOwner',
 };
 
 export function errorMessage(e: unknown, t: (k: DictKey) => string): string {

@@ -40,6 +40,8 @@ export function Footer() {
           <div>
             <h4>{t('footer.resources')}</h4>
             <Link to="/support">{t('nav.support')}</Link>
+            <Link to="/terms">{t('legal.termsFull')}</Link>
+            <Link to="/privacy">{t('legal.privacyFull')}</Link>
             <a href={LINKS.docs} target="_blank" rel="noreferrer">{t('footer.docs')}</a>
             <a href={activeChain.blockExplorers?.default.url} target="_blank" rel="noreferrer">{t('footer.explorer')}</a>
           </div>
