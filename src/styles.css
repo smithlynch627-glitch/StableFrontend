@@ -1211,3 +1211,51 @@ main { overflow-x: clip; }
 .tabs { position: relative; }
 .footer__grid .segmented { justify-self: start; width: fit-content; }
 @media (min-width: 561px) and (max-width: 860px) { .drop-page .drop-media__main { aspect-ratio: 16 / 9; } }
+
+/* ── Mint progress (above the mint panel) ────────────────────────────────── */
+.mint-progress { border: 1px solid var(--line); border-radius: 18px; padding: 16px 18px; display: grid; gap: 10px; background: var(--bg); animation: fade-up 0.35s var(--ease) both; }
+.mint-progress__top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.mint-progress__pct { font-size: 22px; font-weight: 850; letter-spacing: -0.02em; }
+.mint-progress .progress { height: 10px; }
+.mint-progress .progress-meta { margin-top: 0; }
+.mint-progress.is-full .mint-progress__pct { color: var(--good); }
+.cows-hero__mint { display: grid; gap: 14px; }
+.notice--warn { background: var(--warn-bg); color: var(--warn); border: 1px solid var(--warn-line); }
+@media (max-width: 860px) {
+  .drop-page .mint-progress { order: 4; }
+  .drop-page .mint-box { order: 5; }
+  .drop-page .drop-facts { order: 6; }
+  .drop-page .drop-media__strip { order: 7; }
+  .drop-page .drop-phases { order: 8; }
+}
+
+/* ── Metadata guide (Create → Supply and art) ────────────────────────────── */
+.meta-guide { border: 1px solid var(--line); border-radius: 18px; overflow: hidden; background: var(--bg); animation: fade-up 0.3s var(--ease) both; }
+.meta-guide__head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; padding: 14px 16px; background: var(--surface); }
+.meta-guide__head .segmented { background: var(--bg); }
+.meta-guide__body { display: grid; gap: 16px; padding: 16px; }
+.meta-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 16px; }
+.meta-steps > li { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 12px; }
+.meta-steps > li > div { display: grid; gap: 6px; min-width: 0; }
+.meta-steps__n { width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center; background: var(--fg); color: var(--bg); font-weight: 800; font-size: 13px; }
+.tree { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; font: 12.5px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+.tree > span { padding: 3px 8px; border-radius: 8px; background: var(--surface); border: 1px solid var(--line); }
+.tree .tree__dir { background: var(--fg); color: var(--bg); border-color: var(--fg); font-weight: 700; }
+.tree .tree__arrow { background: transparent; border-color: transparent; color: var(--good); font-weight: 700; font-family: inherit; }
+.meta-code { margin: 0; padding: 12px 14px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line); font: 12.5px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-x: auto; white-space: pre; max-height: 320px; }
+.meta-code .is-key { display: inline-block; min-width: 100%; background: color-mix(in srgb, var(--good) 14%, transparent); color: var(--good); border-radius: 4px; font-weight: 700; }
+.meta-inline { justify-self: start; padding: 6px 10px; border-radius: 8px; background: var(--surface); border: 1px solid var(--line); font: 13px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; overflow-wrap: anywhere; }
+.meta-rules { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.meta-rules > li { display: flex; gap: 8px; align-items: flex-start; padding: 10px 12px; border-radius: 12px; font-size: 13px; line-height: 1.45; border: 1px solid; min-width: 0; overflow-wrap: anywhere; }
+.meta-rules > li svg { flex: none; margin-top: 2px; }
+.meta-rules .is-do { background: var(--good-bg); border-color: var(--good-line); color: var(--good); }
+.meta-rules .is-dont { background: var(--bad-bg); border-color: var(--bad-line); color: var(--bad); }
+@media (max-width: 640px) {
+  .meta-rules { grid-template-columns: 1fr; }
+  .meta-guide__head .segmented { width: 100%; }
+  .meta-guide__head .segmented button { flex: 1; }
+}
+.meta-code mark.is-key { color: var(--good); }
+@media (max-width: 640px) {
+  .meta-guide__head .segmented button { white-space: normal; height: auto; min-height: 34px; padding: 6px 10px; line-height: 1.2; }
+}

@@ -14,6 +14,8 @@ import type { Collection, DropState } from '../lib/types';
 import { useAuthedApi, useTx } from '../lib/tx';
 import { CollectionAvatar } from '../components/Art';
 import { IpfsFolderUpload, PreRevealUpload } from '../components/IpfsUpload';
+import { MetadataCheck } from '../components/CreateArt';
+import { MetadataGuide } from '../components/MetadataGuide';
 import { IconAlert } from '../components/Icons';
 import { ChangeList } from '../components/PhaseChanges';
 import { PhaseListEditor, addressesIn, diffDrafts, draft, secToInput, toChainPhase, validateDrafts } from '../components/PhaseEditor';
@@ -242,8 +244,10 @@ function Metadata({ c, addr, s }: { c: Collection; addr: Address; s: S }) {
       )}
       <div className="card card--pad" style={{ display: 'grid', gap: 12 }}>
         <span className="strong">{s.revealed ? t('studio.updateBase') : t('studio.revealWith')}</span>
+        <MetadataGuide name={c.name} description={c.description || ''} supply={c.max_supply || s.maxSupply} />
         <IpfsFolderUpload expected={c.max_supply || undefined} onDone={setUri} />
         <div className="field"><label>{t('create.baseUri')}</label><input className="input" value={uri} onChange={(e) => setUri(e.target.value.trim())} placeholder="ipfs://CID/" /><span className="hint">{t('create.baseUriHint')}</span></div>
+        {validUri && uri.trim().endsWith('/') && <MetadataCheck baseUri={uri.trim()} onResult={() => undefined} expected={s.maxSupply || undefined} />}
         <button className="btn" style={{ justifySelf: 'start' }} disabled={!validUri || !!busy}
           onClick={() => run('reveal', { address: addr, abi: collectionOwnerAbi, functionName: s.revealed ? 'setBaseURI' : 'reveal', args: [uri.trim()] })}>
           {busy === 'reveal' && <span className="spinner" />}{s.revealed ? t('studio.updateBase') : t('studio.revealWith')}

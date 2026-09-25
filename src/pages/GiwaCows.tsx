@@ -11,7 +11,7 @@ import { CollectionAvatar, CollectionBanner, CowImage, SmartImage, TileArt } fro
 import { NftCard } from '../components/NftCard';
 import { Badge, Skeleton } from '../components/ui';
 import { ActivityTab } from './Collection';
-import { MintBox, useDrop } from './Drop';
+import { MintBox, MintProgress, useDrop } from './Drop';
 
 /** Dedicated GIWA COWS section: story, live mint, cheapest listings, traits and activity. */
 export default function GiwaCows() {
@@ -55,6 +55,7 @@ export default function GiwaCows() {
           </div>
           {mintOpen && d && drop.data && (
             <div className="cows-hero__mint">
+              <MintProgress c={drop.data.collection} />
               <MintBox c={drop.data.collection} drop={d} />
             </div>
           )}

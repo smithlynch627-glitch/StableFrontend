@@ -9,7 +9,7 @@ import { useAppConfig } from '../lib/appConfig';
 import { dateTime, eth, pct, short, shortId, timeAgo, tokenLabel } from '../lib/format';
 import { usdText, useMoney } from '../lib/currency';
 import type { Activity, Collection, Order, Token } from '../lib/types';
-import { Avatar, CollectionAvatar, TokenArt } from '../components/Art';
+import { Avatar, CollectionAvatar, TokenArt, fixImageUrl } from '../components/Art';
 import { IconChevron, IconCopy, IconExternal, IconShare } from '../components/Icons';
 import { SocialIcon } from '../components/Social';
 import { useTrade } from '../components/trade';
@@ -261,7 +261,7 @@ export default function ItemPage() {
 
       {zoom && token.image_url && (
         <div className="lightbox" role="dialog" aria-modal="true" onClick={() => setZoom(false)}>
-          <img src={toHttp(token.image_url)} alt={title} />
+          <img src={fixImageUrl(toHttp(token.image_url))} alt={title} />
         </div>
       )}
     </div>

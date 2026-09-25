@@ -107,9 +107,32 @@ export function EligChip({ state }: { state: EligState }) {
   );
 }
 
+/** Mint progress, shown above the mint panel. The minted count is read live from the contract. */
+export function MintProgress({ c }: { c: Collection }) {
+  const { t, lang } = useI18n();
+  const totalQ = useReadContract({ address: c.address as Address, abi: collectionAbi, functionName: 'totalMinted', chainId: activeChain.id, query: { refetchInterval: 6_000 } });
+  const minted = totalQ.data !== undefined ? Number(totalQ.data) : c.total_supply;
+  const max = c.max_supply || 0;
+  const pct = max ? Math.min(100, (minted / max) * 100) : 0;
+  const left = Math.max(0, max - minted);
+  return (
+    <section className={`mint-progress ${max && left === 0 ? 'is-full' : ''}`} aria-label={t('drop.progress')}>
+      <div className="mint-progress__top">
+        <span className="strong">{t('drop.progress')}</span>
+        <span className="mint-progress__pct mono-num">{max ? `${pct.toFixed(pct > 0 && pct < 10 ? 1 : 0)}%` : ''}</span>
+      </div>
+      <Progress value={minted} max={max || 1} />
+      <div className="progress-meta">
+        <span className="mono-num">{t('lp.minted', { n: num(minted, lang), max: num(max, lang) })}</span>
+        <span className="muted">{max ? (left === 0 ? t('lp.soldOut') : t('drop.remaining', { n: num(left, lang) })) : ''}</span>
+      </div>
+    </section>
+  );
+}
+
 /** Mint panel. Price, supply and your mint count are read from the contract, not from the API. */
 export function MintBox({ c, drop }: { c: Collection; drop: DropState }) {
-  const { t, lang } = useI18n();
+  const { t } = useI18n();
   const { usd } = useMoney();
   const { address, isConnected, chainId } = useAccount();
   const { openConnect, ensureReady } = useWalletUI();
@@ -175,9 +198,7 @@ export function MintBox({ c, drop }: { c: Collection; drop: DropState }) {
     }
   }
 
-  const creatorPct = 100 - drop.platformFeeBps / 100;
   const shareUrl = `https://x.com/intent/tweet?text=${encodeURIComponent(t('drop.shareText', { name: c.name }))}&url=${encodeURIComponent(`${window.location.origin}/launchpad/${c.slug}`)}`;
-  const pctMinted = c.max_supply ? Math.min(100, (totalMinted / c.max_supply) * 100) : 0;
   const priceUsd = price > 0n ? usd(price) : null;
   const close = () => { setModal(false); runner.reset(); };
 
@@ -240,19 +261,6 @@ export function MintBox({ c, drop }: { c: Collection; drop: DropState }) {
           <span className="strong">{t('drop.walletLeft', { n: Math.max(0, walletLeft) })}</span>
         </div>
       ) : null}
-
-      <div className="mint-box__progress">
-        <div className="row" style={{ justifyContent: 'space-between', marginBottom: 8 }}>
-          <span className="strong small">{t('drop.progress')}</span>
-          <span className="small mono-num">{c.max_supply ? `${pctMinted.toFixed(pctMinted < 10 ? 1 : 0)}%` : ''}</span>
-        </div>
-        <Progress value={totalMinted} max={c.max_supply || 1} />
-        <div className="progress-meta">
-          <span>{t('lp.minted', { n: num(totalMinted, lang), max: num(c.max_supply, lang) })}</span>
-          <span className="muted">{c.max_supply ? t('drop.remaining', { n: num(Math.max(0, remaining), lang) }) : ''}</span>
-        </div>
-      </div>
-      <p className="tiny muted" style={{ margin: 0 }}>{t('drop.split', { creator: creatorPct, platform: drop.platformFeeBps / 100 })} {t('fee.wallet')}</p>
 
       <Modal open={modal} onClose={close} title={t('drop.mint')} locked={runner.busy} width={minted.length ? 500 : 440}>
         <RunnerStatus
@@ -404,6 +412,7 @@ export default function DropPage() {
 
           <ConfigChangedAlert collection={c.address} changes={drop.changes} />
 
+          <MintProgress c={c} />
           <MintBox c={c} drop={drop} />
 
           <section className="drop-phases">

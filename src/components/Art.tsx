@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { GIWA_COWS } from '../config';
 import { blobPath, hashSeed, mulberry32 } from '../lib/art';
 import type { Attribute } from '../lib/types';
@@ -56,20 +56,40 @@ export function TileArt({ seed, wide = false }: { seed: string; wide?: boolean }
 }
 
 /** Image with skeleton while loading and generated art if it fails. */
+/**
+ * IPFS image links are tried in order: as given → without a file name after the CID (single-file uploads) →
+ * the same on a second gateway. A "bafkrei…" CID is one raw file, so a file name after it is dropped up front.
+ */
+export function imageCandidates(src: string): string[] {
+  const m = src.match(/^(https?:\/\/[^/]+\/ipfs\/)([a-z0-9]{40,})(\/[^?#]*)?/i);
+  if (!m) return [src];
+  const [, gw, cid, rawPath] = m;
+  const path = rawPath && rawPath !== '/' ? rawPath : '';
+  const raw = /^bafkrei/i.test(cid);
+  const out = raw || !path ? [`${gw}${cid}`] : [`${gw}${cid}${path}`, `${gw}${cid}`];
+  const alt = /dweb\.link/.test(gw) ? 'https://ipfs.io/ipfs/' : 'https://dweb.link/ipfs/';
+  out.push(...out.map((u) => u.replace(gw, alt)));
+  return [...new Set(out)];
+}
+export const fixImageUrl = (src: string) => imageCandidates(src)[0];
+
 export function SmartImage({ src, alt, fallback }: { src: string; alt: string; fallback: ReactNode }) {
+  const list = useMemo(() => imageCandidates(src), [src]);
+  const [i, setI] = useState(0);
   const [state, setState] = useState<'loading' | 'ok' | 'error'>('loading');
+  useEffect(() => { setI(0); setState('loading'); }, [src]);
   if (state === 'error') return <>{fallback}</>;
   return (
     <>
       {state === 'loading' && <div className="skeleton" style={{ position: 'absolute', inset: 0, borderRadius: 0 }} />}
       <img
         className="art"
-        src={src}
+        src={list[i]}
         alt={alt}
         loading="lazy"
         decoding="async"
         onLoad={() => setState('ok')}
-        onError={() => setState('error')}
+        onError={() => (i + 1 < list.length ? setI(i + 1) : setState('error'))}
         style={state === 'loading' ? { opacity: 0 } : undefined}
       />
     </>

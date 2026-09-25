@@ -6,6 +6,7 @@ import { useAppConfig } from '../lib/appConfig';
 import { useAuthedApi } from '../lib/tx';
 import { errorMessage } from '../lib/actions';
 import { IconAlert, IconCheck } from './Icons';
+import { fixImageUrl } from './Art';
 import { useToast } from './ui';
 
 const MB = 1024 * 1024;
@@ -197,12 +198,16 @@ export function PreRevealPicker({ name, description, value, onChange }: { name: 
   );
 }
 
-type CheckItem = { id: string; ok: boolean; name?: string | null; image?: string | null; attributes?: { trait_type: string; value: unknown }[]; error?: string; hasImage?: boolean };
+type CheckItem = {
+  id: string; ok: boolean; name?: string | null; image?: string | null; attributes?: { trait_type: string; value: unknown }[]; error?: string; hasImage?: boolean;
+  rawImage?: string | null; imageIssue?: 'raw_cid_path' | null; imageOk?: boolean; imageError?: string | null;
+};
 
 /** Reads 1.json, 2.json, 3.json from the base URI exactly as the contract will, and shows what collectors will see. */
-export function MetadataCheck({ baseUri, onResult }: { baseUri: string; onResult: (ok: boolean) => void }) {
+export function MetadataCheck({ baseUri, onResult, expected }: { baseUri: string; onResult: (ok: boolean) => void; expected?: number }) {
   const { t } = useI18n();
   const [items, setItems] = useState<CheckItem[] | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
   const last = useRef('');
@@ -211,14 +216,29 @@ export function MetadataCheck({ baseUri, onResult }: { baseUri: string; onResult
     const base = baseUri.trim();
     setErr(null);
     setItems(null);
+    setWarnings([]);
     onResult(false);
     if (!/^(ipfs:\/\/|https:\/\/|ar:\/\/)/.test(base)) return setErr(t('create.errUri'));
     if (!base.endsWith('/')) return setErr(t('meta.slash'));
     setBusy(true);
     last.current = base;
     try {
-      const r = await api.get<{ items: CheckItem[] }>('/share/metadata', { base, ids: '1,2,3' });
-      setItems(r.items);
+      // Tokens 1–3 plus the last token (supply), so a folder that is one file short is caught before launch.
+      const last = expected && expected > 3 ? expected : null;
+      const r = await api.get<{ items: CheckItem[] }>('/share/metadata', { base, ids: ['1', '2', '3', ...(last ? [String(last)] : [])].join(',') });
+      setItems(r.items.filter((it) => !last || it.id !== String(last) || !it.ok));
+      const w: string[] = [];
+      const good = r.items.filter((it) => it.ok);
+      const lastItem = last ? r.items.find((it) => it.id === String(last)) : null;
+      if (lastItem && !lastItem.ok) w.push(t('meta.lastMissing', { n: last! }));
+      if (good.some((it) => it.imageIssue === 'raw_cid_path')) {
+        const ex = good.find((it) => it.imageIssue)?.rawImage || '';
+        w.push(t('meta.rawCid', { example: ex.length > 70 ? `${ex.slice(0, 40)}…${ex.slice(-22)}` : ex }));
+      } else {
+        const broken = good.filter((it) => it.hasImage && it.imageOk === false);
+        if (broken.length) w.push(t('meta.imageBroken', { ids: broken.map((b) => `#${b.id}`).join(', '), error: broken[0].imageError || '' }));
+      }
+      setWarnings(w);
       const first = r.items[0];
       if (!first?.ok) {
         const alt = await api.get<{ items: CheckItem[] }>('/share/metadata', { uri: `${base}1` }).catch(() => null);
@@ -239,11 +259,12 @@ export function MetadataCheck({ baseUri, onResult }: { baseUri: string; onResult
     <div style={{ display: 'grid', gap: 10 }}>
       <button type="button" className="btn btn--outline btn--sm" style={{ justifySelf: 'start' }} onClick={run} disabled={busy || !baseUri}>{busy && <span className="spinner" />}{t('meta.check')}</button>
       {err && <div className="notice notice--strong small"><IconAlert size={14} />{err}</div>}
+      {warnings.map((w) => <div key={w} className="notice notice--warn small"><IconAlert size={14} /><span>{w}</span></div>)}
       {items && (
         <div className="meta-check">
           {items.map((it) => (
             <div key={it.id} className={`meta-check__item ${it.ok ? '' : 'is-bad'}`}>
-              <div className="meta-check__img">{it.image ? <img src={it.image} alt="" loading="lazy" /> : <IconAlert size={18} />}</div>
+              <div className="meta-check__img">{it.image ? <img src={fixImageUrl(it.image)} alt="" loading="lazy" onError={(e) => ((e.target as HTMLImageElement).style.visibility = 'hidden')} /> : <IconAlert size={18} />}</div>
               <div style={{ minWidth: 0 }}>
                 <div className="strong small ellipsis">{it.ok ? it.name || `#${it.id}` : `${it.id}.json`}</div>
                 <div className="tiny muted">{it.ok ? t('meta.traits', { n: it.attributes?.length ?? 0 }) : it.error}</div>
