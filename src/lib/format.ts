@@ -86,3 +86,13 @@ export function safeHref(v?: string | null): string | undefined {
   } catch {}
   return undefined;
 }
+
+/**
+ * Explorer link for a collection. The explorer (Blockscout) only creates a collection's token page, with its name and
+ * symbol, when the first NFT is minted; before that /token/<address> is a 404. So a collection with nothing minted yet
+ * links to its contract page, which always exists.
+ */
+export function explorerCollectionUrl(explorerUrl: string, c: { address: string; total_supply?: number | string | null }): string {
+  const minted = Number(c.total_supply || 0) > 0;
+  return `${explorerUrl.replace(/\/$/, '')}/${minted ? 'token' : 'address'}/${c.address}`;
+}

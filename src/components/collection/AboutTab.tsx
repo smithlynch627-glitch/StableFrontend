@@ -1,7 +1,7 @@
 // About: the collection's story (written by admins), key facts, custom details and links.
 import { Link } from 'react-router-dom';
 import { useI18n } from '../../i18n';
-import { dateTime, num, safeHref, short } from '../../lib/format';
+import { dateTime, explorerCollectionUrl, num, safeHref, short } from '../../lib/format';
 import { useAppConfig } from '../../lib/appConfig';
 import type { Collection } from '../../lib/types';
 import { CollectionBanner, SmartImage, TileArt } from '../Art';
@@ -18,7 +18,7 @@ export function AboutTab({ c }: { c: Collection }) {
   const facts: [string, React.ReactNode][] = [
     [t('about.contract'), (
       <span className="row" style={{ gap: 4, justifyContent: 'flex-end' }}>
-        <a className="link mono-num" href={`${cfg.explorerUrl}/token/${c.address}`} target="_blank" rel="noreferrer">{short(c.address)}</a>
+        <a className="link mono-num" href={explorerCollectionUrl(cfg.explorerUrl, c)} target="_blank" rel="noreferrer">{short(c.address)}</a>
         <CopyButton value={c.address} />
       </span>
     )],

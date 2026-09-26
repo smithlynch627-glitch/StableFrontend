@@ -6,7 +6,7 @@ import { useAccount } from 'wagmi';
 import { useI18n } from '../i18n';
 import { api } from '../lib/api';
 import { useAppConfig } from '../lib/appConfig';
-import { dateTime, eth, short, shortId, timeAgo, tokenLabel } from '../lib/format';
+import { dateTime, eth, explorerCollectionUrl, short, shortId, timeAgo, tokenLabel } from '../lib/format';
 import { usdText, useMoney } from '../lib/currency';
 import type { Activity, Collection, Order, Token } from '../lib/types';
 import { Avatar, CollectionAvatar, TokenArt, fixImageUrl, isVideoUrl } from '../components/Art';
@@ -255,7 +255,7 @@ export default function ItemPage() {
               )}
               {tab === 'details' && (
                 <dl className="kv item-v3__kv">
-                  <div><dt>{t('item.contract')}</dt><dd className="row" style={{ gap: 4, justifyContent: 'flex-end' }}><a className="link" href={`${cfg.explorerUrl}/token/${c.address}`} target="_blank" rel="noreferrer">{short(c.address)}</a><CopyButton value={c.address} /></dd></div>
+                  <div><dt>{t('item.contract')}</dt><dd className="row" style={{ gap: 4, justifyContent: 'flex-end' }}><a className="link" href={explorerCollectionUrl(cfg.explorerUrl, c)} target="_blank" rel="noreferrer">{short(c.address)}</a><CopyButton value={c.address} /></dd></div>
                   <div><dt>{t('item.tokenId')}</dt><dd className="row" style={{ gap: 6, justifyContent: 'flex-end' }}><span title={token.token_id}>{shortId(token.token_id)}</span>{token.token_id.length > 12 && <CopyButton value={token.token_id} />}</dd></div>
                   <div><dt>{t('item.standard')}</dt><dd>ERC-721</dd></div>
                   <div><dt>{t('item.chain')}</dt><dd>{cfg.network?.name || 'GIWA'}</dd></div>

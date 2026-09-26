@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useInfiniteQuery, useQuery } from '@tanstack/react-query';
@@ -20,7 +20,9 @@ import { ActiveFilters, FiltersPanel, SORTS, useMarketFilters } from '../compone
 import { RarityRank } from '../components/Rarity';
 import { BackButton } from '../components/BackButton';
 import { NftCard } from '../components/NftCard';
+import { FloatingMenu } from '../components/Floating';
 import { useTrade } from '../components/trade';
+import { BulkBar, useBulkSelection, type OwnedToken } from '../components/bulk';
 import { Badge, EmptyState, GridSkeleton, Skeleton, Tabs } from '../components/ui';
 
 type Tab = 'items' | 'offers' | 'activity' | 'holders' | 'analytics' | 'about';
@@ -161,6 +163,30 @@ function ItemsMarket({ c, onAnalytics }: { c: Collection; onAnalytics: () => voi
   const [sweeping, setSweeping] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const sentinel = useRef<HTMLDivElement>(null);
+  // Select mode for your own items in this collection: list, delist or send many at once.
+  const bulk = useBulkSelection();
+  const autoMine = useRef(false);
+  const holding = useQuery({
+    queryKey: ['tokens', c.address, 'owner', address, 'count'],
+    queryFn: () => api.get<{ tokens: Token[]; total: number }>(`/collections/${c.address}/tokens`, { owner: address, limit: 1 }),
+    enabled: !!address,
+  });
+  const holds = !!address && (holding.data?.total ?? 0) > 0;
+  const me = address?.toLowerCase();
+  const toOwned = (tok: Token): OwnedToken => ({
+    ...tok, collection: c.address, collection_slug: c.slug, collection_name: c.name, art_style: c.art_style as OwnedToken['art_style'],
+    tradable: c.tradable, collection_supply: c.total_supply,
+  });
+  const startManage = () => {
+    setSweeping(false);
+    setSelected(new Set());
+    if (!f.mine) { autoMine.current = true; set({ mine: true }); }
+    bulk.start();
+  };
+  // Leaving select mode (Done, or after a list/delist/send) puts the "only my items" filter back as it was.
+  useEffect(() => {
+    if (!bulk.managing && autoMine.current) { autoMine.current = false; set({ mine: false }); }
+  }, [bulk.managing]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Search box → URL after a short pause.
   useEffect(() => {
@@ -250,9 +276,19 @@ function ItemsMarket({ c, onAnalytics }: { c: Collection; onAnalytics: () => voi
           <button className="btn btn--outline btn--sm toolbar__btn" onClick={onAnalytics}>
             <IconChart size={16} /><span className="hide-sm">{t('col.analytics')}</span>
           </button>
+          {holds && (
+            <button
+              className={`btn btn--sm toolbar__btn ${bulk.managing ? '' : 'btn--outline'}`}
+              onClick={() => (bulk.managing ? bulk.stop() : startManage())}
+              aria-pressed={bulk.managing}
+              title={t('col.manageHint')}
+            >
+              <IconCheck size={16} /><span className="hide-sm">{bulk.managing ? t('bulk.done') : t('bulk.select')}</span>
+            </button>
+          )}
           <button
             className={`btn btn--sm toolbar__btn ${sweeping ? '' : 'btn--outline'}`}
-            onClick={() => { setSweeping((s) => !s); setSelected(new Set()); }}
+            onClick={() => { if (bulk.managing) bulk.stop(); setSweeping((s) => !s); setSelected(new Set()); }}
             aria-pressed={sweeping}
             disabled={c.tradable === false}
             title={c.tradable === false ? t('col.notTradable') : undefined}
@@ -264,6 +300,12 @@ function ItemsMarket({ c, onAnalytics }: { c: Collection; onAnalytics: () => voi
         <div className="market__count">
           <span className="small soft">{t('col.count', { n: num(total, lang) })}</span>
           {q.isFetching && !q.isFetchingNextPage && <span className="spinner" style={{ width: 13, height: 13 }} />}
+          {bulk.managing && (
+            <span className="market__manage">
+              <span className="small soft hide-sm">{t('col.manageHint')}</span>
+              <button className="btn btn--ghost btn--sm" onClick={() => bulk.selectMany(tokens.filter((x) => x.owner?.toLowerCase() === me).map(toOwned))}>{t('bulk.selectAll')}</button>
+            </span>
+          )}
         </div>
 
         <ActiveFilters filters={filters} />
@@ -273,7 +315,13 @@ function ItemsMarket({ c, onAnalytics }: { c: Collection; onAnalytics: () => voi
         ) : tokens.length === 0 ? (
           <EmptyState title={t('col.noItems')} action={activeCount || f.q ? <button className="btn btn--outline" onClick={clearAll}>{t('col.clearFilters')}</button> : undefined} />
         ) : view === 'list' ? (
-          <TokenTable c={c} tokens={tokens} sweeping={sweeping} selected={selected} onToggle={toggleSelect} />
+          <TokenTable
+            c={c}
+            tokens={tokens}
+            mode={bulk.managing ? 'manage' : sweeping ? 'sweep' : null}
+            isSelected={(tok) => (bulk.managing ? bulk.has(toOwned(tok)) : selected.has(tok.token_id))}
+            onToggle={(tok) => (bulk.managing ? bulk.toggle(toOwned(tok)) : toggleSelect(tok.token_id))}
+          />
         ) : (
           <div className={`nft-grid ${view === 'sm' ? 'nft-grid--small' : ''} ${q.isPlaceholderData ? 'is-stale' : ''}`}>
             {tokens.map((tok) => (
@@ -282,8 +330,9 @@ function ItemsMarket({ c, onAnalytics }: { c: Collection; onAnalytics: () => voi
                 token={tok}
                 collection={c}
                 sweeping={sweeping}
-                selected={selected.has(tok.token_id)}
-                onToggle={() => toggleSelect(tok.token_id)}
+                manage={bulk.managing}
+                selected={bulk.managing ? bulk.has(toOwned(tok)) : selected.has(tok.token_id)}
+                onToggle={() => (bulk.managing ? bulk.toggle(toOwned(tok)) : toggleSelect(tok.token_id))}
                 onQuickSelect={() => { setSweeping(true); setSelected(new Set([tok.token_id])); }}
               />
             ))}
@@ -293,6 +342,7 @@ function ItemsMarket({ c, onAnalytics }: { c: Collection; onAnalytics: () => voi
         {q.isFetchingNextPage && <div style={{ marginTop: 14 }}><GridSkeleton count={5} /></div>}
       </div>
 
+      <BulkBar bulk={bulk} />
       {sweeping && (
         <div className="sweep-bar" role="region" aria-label={t('col.sweep')}>
           <div style={{ display: 'grid', gap: 2, minWidth: 110 }}>
@@ -317,12 +367,8 @@ function ItemsMarket({ c, onAnalytics }: { c: Collection; onAnalytics: () => voi
 function ViewMenu({ value, onChange }: { value: View; onChange: (v: View) => void }) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
-    document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
-  }, []);
+  const btn = useRef<HTMLButtonElement>(null);
+  const close = useCallback(() => setOpen(false), []);
   const options: [View, ReactNode, DictKey, DictKey][] = [
     ['lg', <IconGridLg size={16} />, 'col.viewLarge', 'col.viewLargeHint'],
     ['sm', <IconGridSm size={16} />, 'col.viewSmall', 'col.viewSmallHint'],
@@ -330,31 +376,31 @@ function ViewMenu({ value, onChange }: { value: View; onChange: (v: View) => voi
   ];
   const current = options.find((o) => o[0] === value)!;
   return (
-    <div className="dropdown" ref={ref}>
-      <button className="btn btn--outline btn--sm toolbar__btn view-btn" onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open}>
+    <>
+      <button ref={btn} className={`btn btn--outline btn--sm toolbar__btn view-btn ${open ? 'is-open' : ''}`} onClick={() => setOpen((o) => !o)} aria-haspopup="listbox" aria-expanded={open}>
         {current[1]}<span className="hide-sm">{t(current[2])}</span><IconChevron size={14} />
       </button>
-      {open && (
-        <div className="dropdown__menu view-menu" role="listbox" aria-label={t('col.view')}>
-          <div className="view-menu__head tiny muted">{t('col.view')}</div>
-          {options.map(([id, icon, label, hint]) => (
-            <button key={id} role="option" aria-selected={value === id} onClick={() => { onChange(id); setOpen(false); }}>
-              <span className="view-menu__icon">{icon}</span>
-              <span style={{ display: 'grid', flex: 1, textAlign: 'left' }}>
-                <span className="strong">{t(label)}</span>
-                <span className="tiny muted">{t(hint)}</span>
-              </span>
-              {value === id && <IconCheck size={16} />}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
+      <FloatingMenu anchor={btn} open={open} onClose={close} align="right" minWidth={260} className="view-menu" role="listbox" label={t('col.view')}>
+        <div className="view-menu__head tiny muted">{t('col.view')}</div>
+        {options.map(([id, icon, label, hint]) => (
+          <button key={id} role="option" aria-selected={value === id} onClick={() => { onChange(id); close(); }}>
+            <span className="view-menu__icon">{icon}</span>
+            <span style={{ display: 'grid', flex: 1, textAlign: 'left' }}>
+              <span className="strong">{t(label)}</span>
+              <span className="tiny muted">{t(hint)}</span>
+            </span>
+            {value === id && <IconCheck size={16} />}
+          </button>
+        ))}
+      </FloatingMenu>
+    </>
   );
 }
 
 /** List view: one row per item with price, last sale, owner and a quick action. */
-function TokenTable({ c, tokens, sweeping, selected, onToggle }: { c: Collection; tokens: Token[]; sweeping: boolean; selected: Set<string>; onToggle: (id: string) => void }) {
+function TokenTable({ c, tokens, mode, isSelected, onToggle }: {
+  c: Collection; tokens: Token[]; mode: 'sweep' | 'manage' | null; isSelected: (tok: Token) => boolean; onToggle: (tok: Token) => void;
+}) {
   const { t } = useI18n();
   const { money } = useMoney();
   const trade = useTrade();
@@ -378,23 +424,24 @@ function TokenTable({ c, tokens, sweeping, selected, onToggle }: { c: Collection
           {tokens.map((tok) => {
             const mine = tok.owner?.toLowerCase() === me;
             const listed = !!tok.listing_hash;
-            const selectable = sweeping && listed && !mine;
+            const selectable = mode === 'manage' ? mine : mode === 'sweep' && listed && !mine;
+            const on = !!mode && isSelected(tok);
             return (
-              <tr key={tok.token_id} className={`clickable ${selected.has(tok.token_id) ? 'is-selected' : ''}`}
-                onClick={() => (sweeping ? selectable && onToggle(tok.token_id) : nav(`/item/${c.slug}/${tok.token_id}`))}>
+              <tr key={tok.token_id} className={`clickable ${on ? 'is-selected' : ''}`}
+                onClick={() => (mode ? selectable && onToggle(tok) : nav(`/item/${c.slug}/${tok.token_id}`))}>
                 <td>
                   <span className="cell-item">
-                    {sweeping && <span className={`tick ${selected.has(tok.token_id) ? 'is-on' : ''} ${selectable ? '' : 'is-off'}`}>{selected.has(tok.token_id) && <IconCheck size={12} />}</span>}
+                    {mode && <span className={`tick ${on ? 'is-on' : ''} ${selectable ? '' : 'is-off'}`}>{on && <IconCheck size={12} />}</span>}
                     <span className="thumb thumb--sm" style={{ position: 'relative' }}><TokenArt collection={c} token={tok} /></span>
                     <span className="strong ellipsis">{tokenLabel(tok.name, tok.token_id)}</span>
                   </span>
                 </td>
                 <td className="strong mono-num">{listed ? money(tok.listing_price_wei) : <span className="muted">—</span>}</td>
                 <td className="hide-sm mono-num muted">{tok.last_sale_wei ? money(tok.last_sale_wei) : '—'}</td>
-                <td className="hide-md">{tok.rarity_rank ? <RarityRank rank={tok.rarity_rank} of={c.total_supply} variant="chip" /> : <span className="muted">—</span>}</td>
+                <td className="hide-md">{tok.rarity_rank ? <RarityRank rank={tok.rarity_rank} of={c.total_supply} variant="tag" /> : <span className="muted">—</span>}</td>
                 <td className="hide-sm">{mine ? t('common.you') : <Link className="link" to={`/profile/${tok.owner}`} onClick={(e) => e.stopPropagation()}>{short(tok.owner)}</Link>}</td>
                 <td style={{ textAlign: 'right' }}>
-                  {!sweeping && c.tradable !== false && (listed && !mine ? (
+                  {!mode && c.tradable !== false && (listed && !mine ? (
                     <button className="btn btn--sm" onClick={(e) => { e.stopPropagation(); trade.buy(c.address, [tok]); }}>{t('col.buyNow')}</button>
                   ) : mine ? (
                     <button className="btn btn--outline btn--sm" onClick={(e) => { e.stopPropagation(); trade.list(c.address, tok); }}>{listed ? t('item.editPrice') : t('item.list')}</button>
@@ -435,7 +482,17 @@ function OffersTab({ c }: { c: Collection }) {
             return (
               <tr key={o.hash}>
                 <td className="strong mono-num">{money(o.price_wei, 'WETH')}</td>
-                <td>{o.kind === 'collection_offer' ? <span className="pill">{t('col.collectionOffer')}</span> : <Link className="link" to={`/item/${c.slug}/${o.token_id}`}>#{shortId(o.token_id)}</Link>}</td>
+                <td>
+                  {o.kind === 'collection_offer' ? <span className="pill">{t('col.collectionOffer')}</span> : (
+                    <Link className="cell-item" to={`/item/${c.slug}/${o.token_id}`}>
+                      <span className="thumb thumb--sm" style={{ position: 'relative' }}>
+                        <TokenArt collection={c} token={{ token_id: o.token_id!, name: o.token_name ?? null, image_url: o.token_image ?? null } as Token} />
+                      </span>
+                      <span className="strong ellipsis">{o.token_name ? tokenLabel(o.token_name, o.token_id!) : `#${shortId(o.token_id!)}`}</span>
+                      {o.rarity_rank ? <RarityRank rank={o.rarity_rank} of={c.total_supply} variant="tag" /> : null}
+                    </Link>
+                  )}
+                </td>
                 <td><Link className="link" to={`/profile/${o.maker}`}>{mine ? t('common.you') : short(o.maker)}</Link></td>
                 <td className="muted">{timeAgo(o.end_time, lang)}</td>
                 <td style={{ textAlign: 'right' }}>

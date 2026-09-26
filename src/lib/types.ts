@@ -115,6 +115,7 @@ export interface Order {
   token_name?: string | null;
   token_image?: string | null;
   token_attributes?: Attribute[] | null;
+  rarity_rank?: number | null;
   order_json?: SignedOrder;
 }
 

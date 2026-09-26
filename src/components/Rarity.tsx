@@ -13,16 +13,17 @@ export function GemIcon({ size = 12 }: { size?: number }) {
 
 /**
  * Rank as a coloured number. Variants:
- *  media – glass pill on top of artwork · chip – tinted pill · plain – just the coloured number.
+ *  media – glass pill on top of artwork · chip – tinted pill · plain – just the coloured number ·
+ *  tag – compact "#12" pill (NFT cards).
  */
-export function RarityRank({ rank, of, variant = 'chip', className = '' }: { rank: number; of: number; variant?: 'media' | 'chip' | 'plain'; className?: string }) {
+export function RarityRank({ rank, of, variant = 'chip', className = '' }: { rank: number; of: number; variant?: 'media' | 'chip' | 'plain' | 'tag'; className?: string }) {
   const { t, lang } = useI18n();
   const tone = rarityTone(rank, Math.max(of, rank));
   const tip = t('rarity.tip', { rank: rank.toLocaleString(lang), total: Math.max(of, rank).toLocaleString(lang), pct: topText(tone.topPct) });
   return (
     <span className={`rk rk--${variant} ${className}`} style={toneVars(tone)} title={tip} aria-label={tip}>
-      {variant !== 'plain' && <GemIcon size={variant === 'media' ? 12 : 13} />}
-      <span className="rk__n mono-num">{rank.toLocaleString(lang)}</span>
+      {variant !== 'plain' && variant !== 'tag' && <GemIcon size={variant === 'media' ? 12 : 13} />}
+      <span className="rk__n mono-num">{variant === 'tag' ? '#' : ''}{rank.toLocaleString(lang)}</span>
     </span>
   );
 }

@@ -1029,4 +1029,7 @@ export const ko: Partial<Record<DictKey, string>> = {
   'bulk.revokeBtn': '마켓플레이스 권한 제거',
   'bulk.revoking': '제거 중… {n}/{c}',
   'bulk.revokeDone': '완료. 마켓플레이스는 더 이상 이 컬렉션의 NFT를 옮길 수 없습니다.',
+  'card.lastSale': '최근 판매',
+  'col.manageHint': '내 아이템을 골라 한 번에 판매 등록, 등록 취소 또는 전송하세요.',
+  'col.manageMine': '내 아이템 선택',
 };

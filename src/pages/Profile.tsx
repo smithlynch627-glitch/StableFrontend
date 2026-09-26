@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { Link, useParams } from 'react-router-dom';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useAccount, useSignMessage } from 'wagmi';
@@ -11,7 +10,7 @@ import { ensureSession } from '../lib/session';
 import type { Collection, Order, UserProfile } from '../lib/types';
 import { Avatar, CollectionAvatar, CollectionBanner, TokenArt } from '../components/Art';
 import { NftCard } from '../components/NftCard';
-import { BulkDelistModal, BulkListModal, BulkSendModal, type OwnedToken } from '../components/bulk';
+import { BulkBar, useBulkSelection, type OwnedToken } from '../components/bulk';
 import { IconCheck, IconLock } from '../components/Icons';
 import { useTrade } from '../components/trade';
 import { CopyButton, EmptyState, GridSkeleton, Modal, Skeleton, Tabs, useToast } from '../components/ui';
@@ -81,7 +80,6 @@ export default function Profile() {
 
 function Items({ addr, isMe }: { addr: string; isMe: boolean }) {
   const { t } = useI18n();
-  const { address } = useAccount();
   const q = useInfiniteQuery({
     queryKey: ['user-tokens', addr],
     queryFn: ({ pageParam }) => api.get<{ tokens: OwnedToken[]; total: number }>(`/users/${addr}/tokens`, { limit: PAGE, offset: pageParam }),
@@ -90,21 +88,7 @@ function Items({ addr, isMe }: { addr: string; isMe: boolean }) {
   });
   const tokens = q.data?.pages.flatMap((p) => p.tokens) ?? [];
   // Select mode (your own profile): pick items, then list, delist or send them together.
-  const [managing, setManaging] = useState(false);
-  const [sel, setSel] = useState<Map<string, OwnedToken>>(new Map());
-  const [modal, setModal] = useState<'list' | 'delist' | 'send' | null>(null);
-  const k = (x: OwnedToken) => `${x.collection}:${x.token_id}`;
-  const toggle = (x: OwnedToken) => setSel((m) => {
-    const n = new Map(m);
-    if (n.has(k(x))) n.delete(k(x));
-    else if (n.size < 100) n.set(k(x), x);
-    return n;
-  });
-  const stop = () => { setManaging(false); setSel(new Map()); };
-  const chosen = [...sel.values()];
-  const listedMine = chosen.filter((x) => x.listing_hash && x.listing_maker === address?.toLowerCase()).length;
-  const canTrade = chosen.every((x) => x.tradable !== false);
-
+  const bulk = useBulkSelection();
   if (q.isLoading) return <GridSkeleton />;
   if (!tokens.length) return <EmptyState title={t('profile.emptyItems')} action={isMe ? <Link className="btn" to="/launchpad">{t('profile.goLaunchpad')}</Link> : undefined} />;
   return (
@@ -113,9 +97,9 @@ function Items({ addr, isMe }: { addr: string; isMe: boolean }) {
         <div className="manage-bar">
           <span className="small soft">{t('col.count', { n: q.data?.pages[0]?.total ?? tokens.length })}</span>
           <div className="row" style={{ gap: 8 }}>
-            {managing && <button className="btn btn--ghost btn--sm" onClick={() => setSel(new Map(tokens.slice(0, 100).map((x) => [k(x), x])))}>{t('bulk.selectAll')}</button>}
-            <button className={`btn btn--sm ${managing ? '' : 'btn--outline'}`} onClick={() => (managing ? stop() : setManaging(true))} aria-pressed={managing}>
-              <IconCheck size={15} />{managing ? t('bulk.done') : t('bulk.select')}
+            {bulk.managing && <button className="btn btn--ghost btn--sm" onClick={() => bulk.selectMany(tokens)}>{t('bulk.selectAll')}</button>}
+            <button className={`btn btn--sm ${bulk.managing ? '' : 'btn--outline'}`} onClick={() => (bulk.managing ? bulk.stop() : bulk.start())} aria-pressed={bulk.managing}>
+              <IconCheck size={15} />{bulk.managing ? t('bulk.done') : t('bulk.select')}
             </button>
           </div>
         </div>
@@ -127,30 +111,14 @@ function Items({ addr, isMe }: { addr: string; isMe: boolean }) {
             token={tok}
             collection={{ address: tok.collection, slug: tok.collection_slug!, art_style: tok.art_style!, name: tok.collection_name, tradable: tok.tradable, total_supply: tok.collection_supply }}
             showCollection
-            manage={managing}
-            selected={sel.has(k(tok))}
-            onToggle={() => toggle(tok)}
+            manage={bulk.managing}
+            selected={bulk.has(tok)}
+            onToggle={() => bulk.toggle(tok)}
           />
         ))}
       </div>
       {q.hasNextPage && <div style={{ display: 'grid', placeItems: 'center', marginTop: 24 }}><button className="btn btn--outline" onClick={() => q.fetchNextPage()}>{t('common.loadMore')}</button></div>}
-      {managing && createPortal(
-        <div className="sweep-bar bulk-bar" role="region" aria-label={t('bulk.select')}>
-          <div style={{ display: 'grid', gap: 2, minWidth: 100 }}>
-            <span className="strong">{t('col.selected', { n: sel.size })}</span>
-            <button className="tiny bulk-bar__clear" onClick={() => setSel(new Map())} disabled={!sel.size}>{t('col.clearSel')}</button>
-          </div>
-          <div className="sweep-bar__actions">
-            <button className="btn" disabled={!sel.size || sel.size > 50 || !canTrade} onClick={() => setModal('list')} title={sel.size > 50 ? t('bulk.max50') : undefined}>{t('bulk.list', { n: sel.size })}</button>
-            <button className="btn" disabled={!listedMine} onClick={() => setModal('delist')}>{t('bulk.delist', { n: listedMine })}</button>
-            <button className="btn" disabled={!sel.size} onClick={() => setModal('send')}>{t('bulk.send', { n: sel.size })}</button>
-          </div>
-        </div>,
-        document.body,
-      )}
-      {modal === 'list' && <BulkListModal tokens={chosen} onClose={() => { setModal(null); stop(); }} />}
-      {modal === 'delist' && <BulkDelistModal tokens={chosen} onClose={() => { setModal(null); stop(); }} />}
-      {modal === 'send' && <BulkSendModal tokens={chosen} onClose={() => { setModal(null); stop(); }} />}
+      <BulkBar bulk={bulk} />
     </>
   );
 }

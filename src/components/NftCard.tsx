@@ -25,7 +25,8 @@ export function NftCard({
   const listed = !!token.listing_hash;
   // sweeping: pick listings to buy · manage: pick your own items to list, delist or send
   const selecting = sweeping || manage;
-  const selectable = manage || (sweeping && listed && !mine);
+  // Manage mode only picks your own items; sweep mode only picks other people's listings.
+  const selectable = (manage && mine) || (sweeping && listed && !mine);
   const href = `/item/${collection.slug}/${token.token_id}`;
 
   function onClick() {
@@ -48,7 +49,6 @@ export function NftCard({
     >
       <div className="nft-card__media">
         <TokenArt collection={collection} token={token} />
-        {token.rarity_rank && !selecting && collection.total_supply ? <RarityRank rank={token.rarity_rank} of={collection.total_supply} variant="media" className="nft-card__rank" /> : null}
         {selecting && selectable && <span className="nft-card__check">{selected && <IconCheck size={14} />}</span>}
         {!selecting && onQuickSelect && listed && !mine && collection.tradable !== false && (
           <button type="button" className="nft-card__select" aria-label={t('col.select')} title={t('col.select')} onClick={(e) => { e.stopPropagation(); onQuickSelect(); }}>
@@ -70,12 +70,19 @@ export function NftCard({
         ) : null)}
       </div>
       <div className="nft-card__body">
-        {showCollection && <div className="tiny muted" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{collection.name}</div>}
-        <div className="nft-card__name" title={token.name || `#${token.token_id}`}>{tokenLabel(token.name, token.token_id)}</div>
-        <div className="nft-card__price" title={listed ? `${eth(token.listing_price_wei)} ETH` : undefined}>{listed ? money(token.listing_price_wei) : <span className="muted small" style={{ fontWeight: 600 }}>{t('common.notListed')}</span>}</div>
+        {showCollection && <div className="nft-card__col">{collection.name}</div>}
+        <div className="nft-card__head">
+          <div className="nft-card__name" title={token.name || `#${token.token_id}`}>{tokenLabel(token.name, token.token_id)}</div>
+          {token.rarity_rank && collection.total_supply ? <RarityRank rank={token.rarity_rank} of={collection.total_supply} variant="tag" /> : null}
+        </div>
+        <div className="nft-card__price" title={listed ? `${eth(token.listing_price_wei)} ETH` : undefined}>
+          {listed ? money(token.listing_price_wei) : <span className="nft-card__unlisted">{t('common.notListed')}</span>}
+        </div>
         <div className="nft-card__meta">
-          <span>{token.last_sale_wei ? t('common.lastSale', { price: money(token.last_sale_wei) }) : '\u00a0'}</span>
-          {mine && <span className="strong" style={{ color: 'var(--fg)' }}>{t('common.you')}</span>}
+          <span className="nft-card__last" title={token.last_sale_wei ? `${eth(token.last_sale_wei)} ETH` : undefined}>
+            {t('card.lastSale')} <b>{token.last_sale_wei ? money(token.last_sale_wei) : '—'}</b>
+          </span>
+          {mine && <span className="nft-card__you">{t('common.you')}</span>}
         </div>
       </div>
     </article>

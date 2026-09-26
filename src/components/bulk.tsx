@@ -1,6 +1,7 @@
 // Bulk actions on your own NFTs: list many with one signature, delist many in one transaction,
 // send many in one transaction. Each popup explains exactly what the wallet will ask for.
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useQueries } from '@tanstack/react-query';
 import { isAddress } from 'viem';
 import { useAccount, useSignMessage } from 'wagmi';
@@ -259,5 +260,64 @@ function RevokeAfterSend({ collections }: { collections: string[] }) {
         </button>
       )}
     </div>
+  );
+}
+
+// ── Selection + action bar (profile and collection pages) ───────────────────
+export const MAX_SELECT = 100;
+
+/** Which of your items are picked. Keys are collection:tokenId, so items from many collections can mix. */
+export function useBulkSelection() {
+  const [managing, setManaging] = useState(false);
+  const [sel, setSel] = useState<Map<string, OwnedToken>>(new Map());
+  const toggle = useCallback((x: OwnedToken) => setSel((m) => {
+    const n = new Map(m);
+    if (n.has(key(x))) n.delete(key(x));
+    else if (n.size < MAX_SELECT) n.set(key(x), x);
+    return n;
+  }), []);
+  return {
+    managing,
+    start: () => setManaging(true),
+    stop: () => { setManaging(false); setSel(new Map()); },
+    has: (x: OwnedToken) => sel.has(key(x)),
+    toggle,
+    selectMany: (list: OwnedToken[]) => setSel(new Map(list.slice(0, MAX_SELECT).map((x) => [key(x), x]))),
+    clear: () => setSel(new Map()),
+    chosen: [...sel.values()],
+    size: sel.size,
+  };
+}
+export type BulkSelection = ReturnType<typeof useBulkSelection>;
+
+/** Floating bar with List / Delist / Send for the picked items, and their popups. */
+export function BulkBar({ bulk }: { bulk: BulkSelection }) {
+  const { t } = useI18n();
+  const { address } = useAccount();
+  const [modal, setModal] = useState<'list' | 'delist' | 'send' | null>(null);
+  const chosen = bulk.chosen;
+  const listedMine = chosen.filter((x) => x.listing_hash && x.listing_maker === address?.toLowerCase()).length;
+  const canTrade = chosen.every((x) => x.tradable !== false);
+  const done = () => { setModal(null); bulk.stop(); };
+  return (
+    <>
+      {bulk.managing && createPortal(
+        <div className="sweep-bar bulk-bar" role="region" aria-label={t('bulk.select')}>
+          <div style={{ display: 'grid', gap: 2, minWidth: 100 }}>
+            <span className="strong">{t('col.selected', { n: bulk.size })}</span>
+            <button className="tiny bulk-bar__clear" onClick={bulk.clear} disabled={!bulk.size}>{t('col.clearSel')}</button>
+          </div>
+          <div className="sweep-bar__actions">
+            <button className="btn" disabled={!bulk.size || bulk.size > 50 || !canTrade} onClick={() => setModal('list')} title={bulk.size > 50 ? t('bulk.max50') : undefined}>{t('bulk.list', { n: bulk.size })}</button>
+            <button className="btn" disabled={!listedMine} onClick={() => setModal('delist')}>{t('bulk.delist', { n: listedMine })}</button>
+            <button className="btn" disabled={!bulk.size} onClick={() => setModal('send')}>{t('bulk.send', { n: bulk.size })}</button>
+          </div>
+        </div>,
+        document.body,
+      )}
+      {modal === 'list' && <BulkListModal tokens={chosen} onClose={done} />}
+      {modal === 'delist' && <BulkDelistModal tokens={chosen} onClose={done} />}
+      {modal === 'send' && <BulkSendModal tokens={chosen} onClose={done} />}
+    </>
   );
 }

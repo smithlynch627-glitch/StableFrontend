@@ -1,6 +1,6 @@
 // Shared collection header row (collection page + mint page):
 // creator · minted · royalty · (i) description · socials · ⋯ menu.
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Address } from 'viem';
 import { useReadContract } from 'wagmi';
@@ -8,9 +8,10 @@ import { activeChain } from '../../config';
 import { useI18n } from '../../i18n';
 import { collectionAbi } from '../../lib/abis';
 import { useAppConfig } from '../../lib/appConfig';
-import { num, short } from '../../lib/format';
+import { explorerCollectionUrl, num, short } from '../../lib/format';
 import type { Collection } from '../../lib/types';
 import { Avatar } from '../Art';
+import { FloatingMenu } from '../Floating';
 import { IconAlert, IconCopy, IconExternal, IconInfo, IconShare } from '../Icons';
 import { SocialIcon, SocialLink } from '../Social';
 import { useToast } from '../ui';
@@ -121,12 +122,8 @@ export function MoreMenu({ c, showCollectionLink = false }: { c: Collection; sho
   const cfg = useAppConfig();
   const toast = useToast();
   const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const close = (e: MouseEvent) => !ref.current?.contains(e.target as Node) && setOpen(false);
-    document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
-  }, []);
+  const btn = useRef<HTMLButtonElement>(null);
+  const close = useCallback(() => setOpen(false), []);
   const link = `${window.location.origin}/collection/${c.slug}`;
   const copy = () => {
     navigator.clipboard?.writeText(link).then(() => toast(t('col.linkCopied')));
@@ -138,25 +135,24 @@ export function MoreMenu({ c, showCollectionLink = false }: { c: Collection; sho
     else copy();
   };
   return (
-    <div className="dropdown" ref={ref}>
-      <button className="icon-btn" onClick={() => setOpen((o) => !o)} aria-label={t('col.moreOptions')} aria-expanded={open}>
+    <>
+      <button ref={btn} className={`icon-btn ${open ? 'is-open' : ''}`} onClick={() => setOpen((o) => !o)} aria-label={t('col.moreOptions')} aria-haspopup="menu" aria-expanded={open}>
         <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="5" cy="12" r="2" /><circle cx="12" cy="12" r="2" /><circle cx="19" cy="12" r="2" /></svg>
       </button>
-      {open && (
-        <div className="dropdown__menu menu-list" role="menu" style={{ right: 'auto', left: 0 }}>
-          {showCollectionLink && (
-            <Link to={`/collection/${c.slug}`} onClick={() => setOpen(false)}>
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></svg>
-              {t('home.viewCollection')}
-            </Link>
-          )}
-          <a href={`${cfg.explorerUrl}/token/${c.address}`} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}><IconExternal size={16} />{t('col.viewOnChain')}</a>
-          <button onClick={copy}><IconCopy size={16} />{t('col.copyLink')}</button>
-          <button onClick={share}><IconShare size={16} />{t('col.share')}</button>
-          <a href={`https://x.com/intent/tweet?text=${encodeURIComponent(c.name)}&url=${encodeURIComponent(link)}`} target="_blank" rel="noreferrer" onClick={() => setOpen(false)}><SocialIcon kind="x" size={14} />{t('col.shareX')}</a>
-          <Link to={`/support?category=report&collection=${c.address}`} onClick={() => setOpen(false)}><IconAlert size={16} />{t('col.report')}</Link>
-        </div>
-      )}
-    </div>
+      <FloatingMenu anchor={btn} open={open} onClose={close} align="left" minWidth={250} className="menu-list" label={t('col.moreOptions')}>
+        {showCollectionLink && (
+          <Link to={`/collection/${c.slug}`} role="menuitem" onClick={close}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><rect x="4" y="4" width="7" height="7" rx="1.5" /><rect x="13" y="4" width="7" height="7" rx="1.5" /><rect x="4" y="13" width="7" height="7" rx="1.5" /><rect x="13" y="13" width="7" height="7" rx="1.5" /></svg>
+            {t('home.viewCollection')}
+          </Link>
+        )}
+        <a href={explorerCollectionUrl(cfg.explorerUrl, c)} target="_blank" rel="noreferrer" role="menuitem" onClick={close}><IconExternal size={16} />{t('col.viewOnChain')}</a>
+        <button role="menuitem" onClick={copy}><IconCopy size={16} />{t('col.copyLink')}</button>
+        <button role="menuitem" onClick={share}><IconShare size={16} />{t('col.share')}</button>
+        <a href={`https://x.com/intent/tweet?text=${encodeURIComponent(c.name)}&url=${encodeURIComponent(link)}`} target="_blank" rel="noreferrer" role="menuitem" onClick={close}><SocialIcon kind="x" size={16} />{t('col.shareX')}</a>
+        <span className="float-menu__sep" aria-hidden="true" />
+        <Link to={`/support?category=report&collection=${c.address}`} role="menuitem" className="is-danger" onClick={close}><IconAlert size={16} />{t('col.report')}</Link>
+      </FloatingMenu>
+    </>
   );
 }

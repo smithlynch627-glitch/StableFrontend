@@ -1027,6 +1027,9 @@ export const en = {
   'bulk.revokeBtn': 'Remove marketplace access',
   'bulk.revoking': 'Removing… {n}/{c}',
   'bulk.revokeDone': 'Done. The marketplace can no longer move NFTs of these collections.',
+  'card.lastSale': 'Last sale',
+  'col.manageHint': 'Pick your items, then list, delist or send them together.',
+  'col.manageMine': 'Select my items',
 } as const;
 
 export type DictKey = keyof typeof en;
