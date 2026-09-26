@@ -70,3 +70,19 @@ export function tokenLabel(name: string | null | undefined, id: string | number 
   if (name && name.trim()) return sid.length > 12 ? name.replace(`#${sid}`, `#${shortId(sid)}`).trim() : name;
   return `#${shortId(sid)}`;
 }
+
+/**
+ * Only https links (or a same-site path) are ever put into an <a href>. Anything else, such as javascript:,
+ * data: or plain http links saved by a creator or served by a tampered API, is dropped.
+ */
+export function safeHref(v?: string | null): string | undefined {
+  if (!v) return undefined;
+  const s = String(v).trim();
+  if (s.startsWith('/') && !s.startsWith('//')) return s;
+  try {
+    const u = new URL(s);
+    if (u.protocol === 'https:' && !u.username && !u.password) return u.toString();
+    if (import.meta.env.DEV && u.protocol === 'http:' && /^(localhost|127\.0\.0\.1)$/.test(u.hostname)) return u.toString();
+  } catch {}
+  return undefined;
+}

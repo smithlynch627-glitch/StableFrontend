@@ -1,4 +1,5 @@
 import { createContext, useContext, type ReactNode } from 'react';
+import { safeHref } from './format';
 import { useQuery } from '@tanstack/react-query';
 import { api } from './api';
 import type { AppConfig } from './types';
@@ -21,7 +22,9 @@ const Ctx = createContext<AppConfig & { loaded: boolean }>({ ...FALLBACK, loaded
 
 export function AppConfigProvider({ children }: { children: ReactNode }) {
   const { data } = useQuery({ queryKey: ['config'], queryFn: () => api.get<AppConfig>('/config'), staleTime: 60_000, retry: 3 });
-  return <Ctx.Provider value={data ? { ...data, loaded: true } : { ...FALLBACK, loaded: false }}>{children}</Ctx.Provider>;
+  // Explorer links: the pinned explorer when the build has one, otherwise only an https link from the API.
+  const explorerUrl = (import.meta.env.VITE_EXPLORER_URL || safeHref(data?.explorerUrl) || FALLBACK.explorerUrl).replace(/\/$/, '');
+  return <Ctx.Provider value={data ? { ...data, explorerUrl, loaded: true } : { ...FALLBACK, loaded: false }}>{children}</Ctx.Provider>;
 }
 
 export const useAppConfig = () => useContext(Ctx);

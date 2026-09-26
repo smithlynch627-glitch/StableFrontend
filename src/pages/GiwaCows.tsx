@@ -5,7 +5,7 @@ import { GIWA_COWS } from '../config';
 import { useI18n } from '../i18n';
 import { SocialIcon } from '../components/Social';
 import { api } from '../lib/api';
-import { eth, num, pct } from '../lib/format';
+import { eth, num, pct, safeHref } from '../lib/format';
 import type { Collection, DropState, Token, TraitGroup } from '../lib/types';
 import { CollectionAvatar, CollectionBanner, CowImage, SmartImage, TileArt } from '../components/Art';
 import { NftCard } from '../components/NftCard';
@@ -49,7 +49,7 @@ export default function GiwaCows() {
               <Link to={`/collection/${c.slug}`} className="btn btn--lg">{t('cows.trade')}</Link>
               {mintOpen && <Link to={`/launchpad/${c.slug}`} className="btn btn--lg btn--outline">{t('cows.viewDrop')}</Link>}
               {(c.twitter || GIWA_COWS.x) && (
-                <a className="btn btn--lg btn--ghost" href={c.twitter || GIWA_COWS.x} target="_blank" rel="noreferrer"><SocialIcon kind="x" size={15} />{t('cows.follow')}</a>
+                <a className="btn btn--lg btn--ghost" href={safeHref(c.twitter) || safeHref(GIWA_COWS.x)} target="_blank" rel="noreferrer"><SocialIcon kind="x" size={15} />{t('cows.follow')}</a>
               )}
             </div>
           </div>

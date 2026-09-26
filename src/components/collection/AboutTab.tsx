@@ -1,7 +1,7 @@
 // About: the collection's story (written by admins), key facts, custom details and links.
 import { Link } from 'react-router-dom';
 import { useI18n } from '../../i18n';
-import { dateTime, num, short } from '../../lib/format';
+import { dateTime, num, safeHref, short } from '../../lib/format';
 import { useAppConfig } from '../../lib/appConfig';
 import type { Collection } from '../../lib/types';
 import { CollectionBanner, SmartImage, TileArt } from '../Art';
@@ -33,10 +33,10 @@ export function AboutTab({ c }: { c: Collection }) {
   ];
   if (c.revealed !== null && c.revealed !== undefined) facts.push([t('about.metadata'), c.metadata_frozen ? t('about.frozen') : c.revealed ? t('about.revealed') : t('about.unrevealed')]);
   const links = [
-    c.twitter && { kind: 'x' as const, href: c.twitter, label: 'X' },
-    c.discord && { kind: 'discord' as const, href: c.discord, label: 'Discord' },
-    c.telegram && { kind: 'telegram' as const, href: c.telegram, label: 'Telegram' },
-    c.website && { kind: 'website' as const, href: c.website, label: t('col.website') },
+    safeHref(c.twitter) && { kind: 'x' as const, href: safeHref(c.twitter)!, label: 'X' },
+    safeHref(c.discord) && { kind: 'discord' as const, href: safeHref(c.discord)!, label: 'Discord' },
+    safeHref(c.telegram) && { kind: 'telegram' as const, href: safeHref(c.telegram)!, label: 'Telegram' },
+    safeHref(c.website) && { kind: 'website' as const, href: safeHref(c.website)!, label: t('col.website') },
   ].filter(Boolean) as { kind: 'x' | 'discord' | 'telegram' | 'website'; href: string; label: string }[];
 
   return (

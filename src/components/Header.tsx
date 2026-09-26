@@ -11,7 +11,7 @@ import { useTheme } from '../lib/theme';
 import type { Collection } from '../lib/types';
 import { useAppConfig } from '../lib/appConfig';
 import { Avatar, CollectionAvatar } from './Art';
-import { IconAlert, IconClose, IconCopy, IconLogout, IconMenu, IconMoon, IconSearch, IconSun, IconUser } from './Icons';
+import { IconAlert, IconClose, IconCopy, IconLogout, IconMenu, IconMoon, IconSearch, IconSun, IconUser, IconLock } from './Icons';
 import { Badge, useToast } from './ui';
 import { useWalletUI } from './wallet';
 import { Logo } from './Logo';
@@ -115,6 +115,7 @@ function WalletButton() {
             <div className="h3 mono-num">{bal ? eth(bal.value) : '—'} ETH</div>
           </div>
           <Link to={`/profile/${address}`} onClick={() => setOpen(false)}><IconUser size={17} />{t('wallet.profile')}</Link>
+          <Link to="/security" onClick={() => setOpen(false)}><IconLock size={17} />{t('sec.menu')}</Link>
           <Link to="/support" onClick={() => setOpen(false)}><IconAlert size={17} />{t('nav.support')}</Link>
           <button onClick={() => { navigator.clipboard?.writeText(address); toast(t('wallet.copied')); setOpen(false); }}><IconCopy size={17} />{t('wallet.copy')}</button>
           <button onClick={() => { clearSession(address); forget(); disconnect(); setOpen(false); }}><IconLogout size={17} />{t('wallet.disconnect')}</button>

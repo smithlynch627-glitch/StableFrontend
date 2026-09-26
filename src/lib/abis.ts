@@ -17,6 +17,8 @@ const orderTuple = {
   ],
 } as const;
 
+/** v3 bulk listing: one signature over every order (the wallet shows each one). */
+export const BULK_MAGIC = '5354424b';
 export const ORDER_TYPES = {
   Order: [
     { name: 'maker', type: 'address' },
@@ -35,7 +37,8 @@ export const ORDER_TYPES = {
 
 export const marketAbi = [
   ...['OrderUnavailable', 'OrderExpired', 'StaleCounter', 'BadSignature', 'CollectionNotTradable', 'ZeroPrice', 'FeeChanged',
-    'RoyaltyChanged', 'SelfFill', 'WrongToken', 'InvalidBatch', 'NothingFilled', 'NotMaker', 'TransferFailed', 'InvalidOrder', 'EnforcedPause']
+    'RoyaltyChanged', 'SelfFill', 'WrongToken', 'InvalidBatch', 'NothingFilled', 'NotMaker', 'TransferFailed', 'InvalidOrder', 'EnforcedPause',
+    'NotAuthorized', 'InvalidRecipient']
     .map((name) => ({ type: 'error', name, inputs: [] }) as const),
   { type: 'error', name: 'WrongPayment', inputs: [{ name: 'expected', type: 'uint256' }, { name: 'received', type: 'uint256' }] },
   { type: 'error', name: 'ProceedsTooLow', inputs: [{ name: 'proceeds', type: 'uint256' }, { name: 'minimum', type: 'uint256' }] },
@@ -52,6 +55,14 @@ export const marketAbi = [
   },
   { type: 'function', name: 'cancel', stateMutability: 'nonpayable', inputs: [{ ...orderTuple, name: 'orders', type: 'tuple[]' }], outputs: [] },
   { type: 'function', name: 'incrementCounter', stateMutability: 'nonpayable', inputs: [], outputs: [] },
+  // v3: send many of your own NFTs in one transaction (from = the caller, always)
+  {
+    type: 'function', name: 'transferBatch', stateMutability: 'nonpayable',
+    inputs: [{ name: 'items', type: 'tuple[]', components: [{ name: 'collection', type: 'address' }, { name: 'tokenId', type: 'uint256' }, { name: 'to', type: 'address' }] }],
+    outputs: [],
+  },
+  { type: 'function', name: 'version', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] },
+  { type: 'function', name: 'isTradable', stateMutability: 'view', inputs: [{ name: 'collection', type: 'address' }], outputs: [{ type: 'bool' }] },
   { type: 'function', name: 'counters', stateMutability: 'view', inputs: [{ name: 'maker', type: 'address' }], outputs: [{ type: 'uint256' }] },
   { type: 'function', name: 'marketFeeBps', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint16' }] },
   {
@@ -110,6 +121,11 @@ export const collectionAbi = [
     inputs: [{ name: 'operator', type: 'address' }, { name: 'approved', type: 'bool' }], outputs: [],
   },
   {
+    type: 'function', name: 'safeTransferFrom', stateMutability: 'nonpayable',
+    inputs: [{ name: 'from', type: 'address' }, { name: 'to', type: 'address' }, { name: 'tokenId', type: 'uint256' }], outputs: [],
+  },
+  { type: 'function', name: 'ownerOf', stateMutability: 'view', inputs: [{ name: 'tokenId', type: 'uint256' }], outputs: [{ type: 'address' }] },
+  {
     type: 'event', name: 'Transfer',
     inputs: [{ name: 'from', type: 'address', indexed: true }, { name: 'to', type: 'address', indexed: true }, { name: 'tokenId', type: 'uint256', indexed: true }],
   },
@@ -117,6 +133,7 @@ export const collectionAbi = [
 
 export const factoryAbi = [
   ...['InvalidConfig', 'EnforcedPause', 'ZeroAddress', 'PublicPhaseRequired', 'PhasesOutOfOrder'].map((name) => ({ type: 'error', name, inputs: [] }) as const),
+  { type: 'function', name: 'isCollection', stateMutability: 'view', inputs: [{ name: 'c', type: 'address' }], outputs: [{ type: 'bool' }] },
   {
     type: 'function', name: 'createCollection', stateMutability: 'nonpayable',
     inputs: [

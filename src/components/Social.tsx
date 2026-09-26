@@ -1,6 +1,7 @@
 // Community links (X, Discord, Telegram). Brand icons are loaded from the Simple Icons CDN
 // (the official brand marks as published there), shown white-on-black / black-on-white per theme.
 import type { ReactNode } from 'react';
+import { safeHref } from '../lib/format';
 
 const ICON = (slug: string) => `https://cdn.jsdelivr.net/npm/simple-icons@13/icons/${slug}.svg`;
 export type SocialKind = 'x' | 'discord' | 'telegram' | 'website';
@@ -18,8 +19,10 @@ export function SocialIcon({ kind, size = 18 }: { kind: SocialKind; size?: numbe
 }
 
 export function SocialLink({ kind, href, size = 18, children }: { kind: SocialKind; href: string; size?: number; children?: ReactNode }) {
+  const safe = safeHref(href);
+  if (!safe) return null;
   return (
-    <a className="social-btn" href={href} target="_blank" rel="noreferrer noopener" aria-label={LABEL[kind]} title={LABEL[kind]}>
+    <a className="social-btn" href={safe} target="_blank" rel="noreferrer noopener" aria-label={LABEL[kind]} title={LABEL[kind]}>
       <SocialIcon kind={kind} size={size} />
       {children}
     </a>

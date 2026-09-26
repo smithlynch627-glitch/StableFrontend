@@ -226,7 +226,7 @@ export function MintBox({ c, drop }: { c: Collection; drop: DropState }) {
     if (!(await ensureReady())) return;
     setModal(true);
     setMinted([]);
-    const out = await runner.run((ctx) => mint(ctx, { collection: c.address, phaseIndex: live.index, quantity: q, proof: myLive?.proof ?? [] }));
+    const out = await runner.run((ctx) => mint(ctx, { collection: c.address, phaseIndex: live.index, quantity: q, proof: myLive?.proof ?? [], expectedPriceWei: price }));
     if (out) {
       setMinted(out.tokenIds);
       setQty(1);

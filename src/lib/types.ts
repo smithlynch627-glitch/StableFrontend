@@ -11,6 +11,8 @@ export interface AppConfig {
   rpcUrl: string;
   explorerUrl: string;
   market: string | null;
+  /** Earlier (paused) marketplace contracts: the Security page offers to revoke approvals given to them. */
+  legacyMarkets?: string[];
   factory: string | null;
   feeVault: string | null;
   weth: string;

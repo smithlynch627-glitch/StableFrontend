@@ -9,7 +9,7 @@ import { useToast } from '../components/ui';
 import { useWalletUI } from '../components/wallet';
 import { api } from './api';
 import { errorMessage } from './actions';
-import { ensureSession } from './session';
+import { ensureSession, withSession } from './session';
 import { wagmiConfig } from './wagmi';
 
 export function useAuthedApi() {
@@ -19,14 +19,18 @@ export function useAuthedApi() {
     if (!address) throw new Error('Connect your wallet first');
     return ensureSession(address, (message) => signMessageAsync({ message }));
   }, [address, signMessageAsync]);
+  const call = async <T,>(fn: (tk: string) => Promise<T>): Promise<T> => {
+    if (!address) throw new Error('Connect your wallet first');
+    return withSession(address, (message) => signMessageAsync({ message }), fn);
+  };
   return {
     token,
-    get: async <T,>(path: string, params?: Record<string, any>) => api.get<T>(path, params, await token()),
-    post: async <T,>(path: string, body?: unknown) => api.post<T>(path, body, await token()),
-    put: async <T,>(path: string, body: unknown) => api.put<T>(path, body, await token()),
-    patch: async <T,>(path: string, body: unknown) => api.patch<T>(path, body, await token()),
-    del: async <T,>(path: string) => api.del<T>(path, await token()),
-    upload: async <T,>(path: string, file: File, fields?: Record<string, string>) => api.upload<T>(path, file, await token(), fields),
+    get: <T,>(path: string, params?: Record<string, any>) => call((tk) => api.get<T>(path, params, tk)),
+    post: <T,>(path: string, body?: unknown) => call((tk) => api.post<T>(path, body, tk)),
+    put: <T,>(path: string, body: unknown) => call((tk) => api.put<T>(path, body, tk)),
+    patch: <T,>(path: string, body: unknown) => call((tk) => api.patch<T>(path, body, tk)),
+    del: <T,>(path: string) => call((tk) => api.del<T>(path, tk)),
+    upload: <T,>(path: string, file: File, fields?: Record<string, string>) => call((tk) => api.upload<T>(path, file, tk, fields)),
   };
 }
 

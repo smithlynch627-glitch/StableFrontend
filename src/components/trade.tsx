@@ -11,7 +11,8 @@ import {
   acceptOffer, buyListings, cancelOrder, errorMessage, listItem, makeOffer, quote, relistHigher, stepLabel, wrapEth,
   type ActionCtx, type StepKey,
 } from '../lib/actions';
-import { wethAbi } from '../lib/abis';
+import { collectionAbi, marketAbi, wethAbi } from '../lib/abis';
+import { PINNED, activeChain } from '../config';
 import { bpsFee, eth, shortId, tokenLabel, toWei } from '../lib/format';
 import type { Address, Collection, DropState, Order, Token } from '../lib/types';
 import { CollectionAvatar, TokenArt } from './Art';
@@ -231,13 +232,18 @@ function SellerSummary({ priceWei, col, unit }: { priceWei: bigint | null; col: 
   const cfg = useAppConfig();
   const { t } = useI18n();
   const p = priceWei ?? 0n;
-  const feeBps = cfg.marketFeeBps ?? 0;
+  // Fee and royalty straight from the contracts (the same values the signed order will cap), not from the server.
+  const market = (PINNED.market || cfg.market) as Address | null;
+  const onchainFee = useReadContract({ address: market ?? undefined, abi: marketAbi, functionName: 'marketFeeBps', chainId: activeChain.id, query: { enabled: !!market, staleTime: 60_000 } });
+  const onchainRoyalty = useReadContract({ address: col.address as Address, abi: collectionAbi, functionName: 'royaltyInfo', args: [1n, 10_000n], chainId: activeChain.id, query: { staleTime: 60_000 } });
+  const feeBps = onchainFee.data !== undefined ? Number(onchainFee.data) : (cfg.marketFeeBps ?? 0);
+  const royaltyBps = onchainRoyalty.data ? Number((onchainRoyalty.data as readonly [Address, bigint])[1]) : col.royalty_bps;
   const fee = bpsFee(p, feeBps);
-  const royalty = bpsFee(p, col.royalty_bps);
+  const royalty = bpsFee(p, royaltyBps);
   return (
     <div className="sum-rows">
       <div><span className="muted">{t('common.marketFee')} ({feeBps / 100}%)</span><span className="mono-num">{eth(fee)} {unit}</span></div>
-      <div><span className="muted">{t('common.royalty')} ({col.royalty_bps / 100}%)</span><span className="mono-num">{eth(royalty)} {unit}</span></div>
+      <div><span className="muted">{t('common.royalty')} ({royaltyBps / 100}%)</span><span className="mono-num">{eth(royalty)} {unit}</span></div>
       <div className="total"><span>{t('common.youReceive')}</span><span className="mono-num">{eth(p - fee - royalty)} {unit}</span></div>
     </div>
   );
@@ -400,7 +406,9 @@ function BuyModal({ runner, onClose, col, tokens }: ModalProps & { tokens: Token
   const [result, setResult] = useState<{ bought: number; skipped: number } | null>(null);
 
   async function submit() {
-    const out = await runner.run((ctx) => buyListings(ctx, items.map((x) => x.listing_hash!)));
+    const out = await runner.run((ctx) => buyListings(ctx, items.map((x) => ({
+      hash: x.listing_hash!, collection: col.address, tokenId: x.token_id, priceWei: BigInt(x.listing_price_wei || 0),
+    }))));
     if (out) {
       setResult({ bought: out.bought.length, skipped: out.skipped });
       if (out.skipped) toast(t('buy.partial', { n: out.bought.length }), 'error');
@@ -462,7 +470,7 @@ function AcceptModal({ runner, onClose, col, order, token }: ModalProps & { orde
     await runner.run(async (ctx) => {
       // The seller's minimum comes from the contract's own quote, so fees can't change under you.
       const q = await quote(ctx.cfg, col.address, chosen.token_id, BigInt(order.price_wei));
-      return acceptOffer(ctx, { order, tokenId: chosen.token_id, minProceeds: q.proceeds });
+      return acceptOffer(ctx, { order, collection: col.address, tokenId: chosen.token_id, minProceeds: q.proceeds });
     });
   }
 

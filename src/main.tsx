@@ -8,7 +8,7 @@ import { I18nProvider } from './i18n';
 import { AppConfigProvider } from './lib/appConfig';
 import { initWagmi, wagmiConfig } from './lib/wagmi';
 import { CurrencyProvider } from './lib/currency';
-import { API_URL, makeChain, setActiveChain } from './config';
+import { API_URL, PINNED, makeChain, setActiveChain } from './config';
 import type { AppConfig } from './lib/types';
 import { ToastProvider } from './components/ui';
 import { WalletProvider } from './components/wallet';
@@ -25,10 +25,15 @@ async function boot() {
   try {
     const res = await fetch(`${API_URL}/api/config`, { signal: AbortSignal.timeout(8000) });
     const cfg = (await res.json()) as AppConfig;
-    if (cfg?.chainId) {
+    // The server can never move wallets to another chain: a build with VITE_CHAIN_ID stays on that chain, and
+    // trading is refused (see actions.need) if the server claims a different one.
+    if (cfg?.chainId && (!PINNED.chainId || cfg.chainId === PINNED.chainId)) {
       const chain = makeChain({ chainId: cfg.chainId, name: cfg.network?.name || 'GIWA', rpcUrl: cfg.rpcUrl, explorerUrl: cfg.explorerUrl, isTestnet: cfg.network?.isTestnet ?? true });
       setActiveChain(chain);
       initWagmi(chain);
+      queryClient.setQueryData(['config'], cfg);
+    } else if (cfg?.chainId) {
+      console.error(`[security] The API reports chain ${cfg.chainId}, but this site is built for chain ${PINNED.chainId}. Trading is disabled.`);
       queryClient.setQueryData(['config'], cfg);
     }
   } catch {
