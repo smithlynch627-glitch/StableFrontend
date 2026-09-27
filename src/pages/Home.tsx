@@ -1,19 +1,26 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { BRAND, GIWA_COWS } from '../config';
+import { GIWA_COWS } from '../config';
 import { useI18n } from '../i18n';
+import { cowsContent } from '../content/cows';
 import { api } from '../lib/api';
+import { useAppConfig } from '../lib/appConfig';
 import { blobPath, mulberry32 } from '../lib/art';
-import { eth, num, timeAgo, tokenLabel } from '../lib/format';
+import { useMoney } from '../lib/currency';
+import { eth, num, short, timeAgo, tokenLabel } from '../lib/format';
 import type { Activity, Collection, DropListItem } from '../lib/types';
-import { CollectionAvatar, CowImage, SmartImage, TileArt, TokenArt } from '../components/Art';
-import { DropCard, DropStatusPill, phasePrice } from '../components/DropCard';
+import { CollectionAvatar, TokenArt } from '../components/Art';
+import { CollectionCard } from '../components/CollectionCard';
+import { DropCard, DropStatusPill } from '../components/DropCard';
+import { FaqSection } from '../components/Faq';
+import { IconArrowRight, IconExternal, IconVerified } from '../components/Icons';
+import { CowRotator } from '../components/cows';
 import { Badge, CountdownLabel, EmptyState, Progress, Skeleton } from '../components/ui';
 
 function HideField() {
   const blobs = useMemo(() => {
-    const r = mulberry32(2222);
+    const r = mulberry32(3333);
     return [
       blobPath(8, 20, 14, r, 8, 0.6), blobPath(88, 12, 11, r, 8, 0.6), blobPath(64, 82, 16, r, 8, 0.6),
       blobPath(30, 92, 9, r, 7, 0.6), blobPath(52, 40, 7, r, 7, 0.6),
@@ -28,55 +35,168 @@ function HideField() {
   );
 }
 
-function FeaturedDrop({ d }: { d: DropListItem }) {
+/** The hero card: GIWA COWS only, with artwork that changes every few seconds. */
+function CowsCard({ drop }: { drop?: DropListItem }) {
   const { t, lang } = useI18n();
   const nav = useNavigate();
-  const c = d.collection;
-  const phase = d.livePhase ?? d.nextPhase;
+  const copy = cowsContent(lang);
+  const c = drop?.collection;
+  const minting = !!drop && (drop.status === 'live' || drop.status === 'upcoming');
   return (
-    <div className="feature-drop">
-      <Link to={`/launchpad/${c.slug}`} className="feature-drop__media" aria-label={c.name}>
-        <DropStatusPill d={d} />
-        <CollectionAvatar collection={c} />
+    <div className="cows-card">
+      <Link to={`/${GIWA_COWS.slug}`} className="cows-card__media" aria-label={GIWA_COWS.name}>
+        <CowRotator interval={3200} w={720} />
+        <span className="cows-card__pill"><IconVerified size={14} official />{t('home.officialPill')}</span>
+        {minting && drop && <span className="cows-card__status"><DropStatusPill d={drop} /></span>}
       </Link>
-      <div className="feature-drop__body">
-        <div className="row" style={{ justifyContent: 'space-between', alignItems: 'flex-start' }}>
-          <div>
-            <div className="small muted">{t('home.featured')}</div>
-            <div className="row" style={{ gap: 6 }}><span className="h2">{c.name}</span><Badge official={c.is_official} verified={c.verified} size={18} /></div>
-          </div>
-          <div style={{ textAlign: 'right' }}>
-            <div className="small muted">{phase?.name}</div>
-            <div className="h3 mono-num">{phasePrice(phase?.priceWei, t('lp.free'))}</div>
-          </div>
-        </div>
+      <div className="cows-card__body">
         <div>
-          <Progress value={c.total_supply} max={c.max_supply || 1} />
-          <div className="progress-meta">
-            <span>{t('lp.minted', { n: num(c.total_supply, lang), max: num(c.max_supply, lang) })}</span>
-            <span className="muted">
-              {d.status === 'live' && d.livePhase?.end ? <CountdownLabel k="lp.endsIn" to={d.livePhase.end} /> : null}
-              {d.status === 'upcoming' && d.nextPhase ? <CountdownLabel k="lp.startsIn" to={d.nextPhase.start} /> : null}
-            </span>
-          </div>
+          <div className="tiny muted">{copy.eyebrow}</div>
+          <div className="row" style={{ gap: 6 }}><span className="h2">{GIWA_COWS.name}</span><Badge official size={20} /></div>
         </div>
-        <button className="btn btn--lg btn--block" onClick={() => nav(`/launchpad/${c.slug}`)}>{t('home.mintNow')}</button>
+        {minting && c ? (
+          <div>
+            <Progress value={c.total_supply} max={c.max_supply || 1} />
+            <div className="progress-meta">
+              <span>{t('lp.minted', { n: num(c.total_supply, lang), max: num(c.max_supply, lang) })}</span>
+              <span className="muted">
+                {drop.status === 'live' && drop.livePhase?.end ? <CountdownLabel k="lp.endsIn" to={drop.livePhase.end} /> : null}
+                {drop.status === 'upcoming' && drop.nextPhase ? <CountdownLabel k="lp.startsIn" to={drop.nextPhase.start} /> : null}
+              </span>
+            </div>
+          </div>
+        ) : (
+          <dl className="cows-card__facts">
+            {copy.facts.slice(0, 3).map((f) => <div key={f.label}><dt>{f.label}</dt><dd>{f.value}</dd></div>)}
+          </dl>
+        )}
+        {minting ? (
+          <button className="btn btn--lg btn--block" onClick={() => nav(`/launchpad/${GIWA_COWS.slug}`)}>{t('home.mintNow')}</button>
+        ) : (
+          <Link to={`/${GIWA_COWS.slug}`} className="btn btn--lg btn--block">{t('home.cowsCta')}<IconArrowRight size={16} /></Link>
+        )}
       </div>
     </div>
   );
 }
 
-function CowsTeaser() {
+/** Collections the team marked as featured. The whole section is hidden when there are none. */
+function FeaturedCollections() {
   const { t } = useI18n();
+  const q = useQuery({
+    queryKey: ['collections', 'featured'],
+    queryFn: () => api.get<{ collections: Collection[] }>('/collections', { featured: 1, sort: 'volume', limit: 8 }),
+  });
+  const list = (q.data?.collections ?? []).filter((c) => c.slug !== GIWA_COWS.slug);
+  if (list.length === 0) return null;
   return (
-    <Link to={`/${GIWA_COWS.slug}`} className="feature-drop" style={{ display: 'grid' }}>
-      <div className="feature-drop__media"><span className="pill">{t('lp.upcoming')}</span><CowImage index={0} /></div>
-      <div className="feature-drop__body">
-        <div className="row" style={{ gap: 6 }}><span className="h2">{GIWA_COWS.name}</span><Badge official size={18} /></div>
-        <p className="soft small">{t('cows.soonTitle')}</p>
-        <span className="btn btn--lg btn--block">{t('cows.title')}</span>
+    <section className="section">
+      <div className="section__head">
+        <div className="section__title">
+          <h2 className="h2">{t('home.featuredCols')}</h2>
+          <p className="small muted">{t('home.featuredSub')}</p>
+        </div>
+        <Link to="/explore" className="btn btn--outline btn--sm">{t('common.viewAll')}</Link>
       </div>
-    </Link>
+      <div className="drop-grid">{list.map((c) => <CollectionCard key={c.address} c={c} featured />)}</div>
+    </section>
+  );
+}
+
+function Launchpad({ drops, loading }: { drops: DropListItem[]; loading: boolean }) {
+  const { t } = useI18n();
+  const rank = { live: 0, upcoming: 1, sold_out: 2, ended: 3 } as Record<string, number>;
+  const list = [...drops].sort((a, b) => (rank[a.status] ?? 9) - (rank[b.status] ?? 9)).slice(0, 6);
+  return (
+    <section className="section">
+      <div className="section__head">
+        <div className="section__title">
+          <h2 className="h2">{t('home.drops')}</h2>
+          <p className="small muted">{t('home.dropsSub')}</p>
+        </div>
+        <Link to="/launchpad" className="btn btn--outline btn--sm">{t('common.viewAll')}</Link>
+      </div>
+      {loading ? (
+        <div className="drop-grid">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} h={320} r={14} />)}</div>
+      ) : list.length === 0 ? (
+        <EmptyState title={t('lp.emptyLive')} action={<Link className="btn" to="/create">{t('lp.create')}</Link>} />
+      ) : (
+        <div className="drop-grid">{list.map((d) => <DropCard key={d.collection.address} d={d} />)}</div>
+      )}
+    </section>
+  );
+}
+
+function Party({ a, label }: { a: string | null; label: string }) {
+  if (!a) return <span className="muted">—</span>;
+  return <Link className="sale-card__addr" to={`/profile/${a}`} title={`${label}: ${a}`}><span className="muted">{label}</span> {short(a)}</Link>;
+}
+
+function SaleCard({ a }: { a: Activity }) {
+  const { t, lang } = useI18n();
+  const cfg = useAppConfig();
+  const { usd } = useMoney();
+  const col = { address: a.collection, art_style: a.art_style, image_url: a.collection_image, name: a.collection_name };
+  const itemUrl = a.token_id ? `/item/${a.collection_slug}/${a.token_id}` : `/collection/${a.collection_slug}`;
+  const usdPrice = a.price_wei ? usd(a.price_wei) : null;
+  return (
+    <article className="sale-card">
+      <Link to={itemUrl} className="sale-card__media" aria-label={tokenLabel(a.token_name, a.token_id)}>
+        {a.token_id
+          ? <TokenArt collection={col} token={{ token_id: a.token_id, image_url: a.token_image, attributes: a.token_attributes }} />
+          : <CollectionAvatar collection={col} />}
+      </Link>
+      <div className="sale-card__main">
+        <Link to={itemUrl} className="sale-card__name">{tokenLabel(a.token_name, a.token_id)}</Link>
+        <Link to={`/collection/${a.collection_slug}`} className="sale-card__col">{a.collection_name}</Link>
+      </div>
+      <div className="sale-card__price">
+        <span className="mono-num">{eth(a.price_wei)} ETH</span>
+        {usdPrice && <span className="tiny muted mono-num">≈ {usdPrice}</span>}
+      </div>
+      <div className="sale-card__foot">
+        <span className="sale-card__parties">
+          <Party a={a.from_addr} label={t('home.seller')} />
+          <IconArrowRight size={12} />
+          <Party a={a.to_addr} label={t('home.buyer')} />
+        </span>
+        {a.tx_hash ? (
+          <a className="sale-card__time link" href={`${cfg.explorerUrl}/tx/${a.tx_hash}`} target="_blank" rel="noreferrer" title={t('home.viewTx')}>
+            {timeAgo(a.created_at, lang)}<IconExternal size={12} />
+          </a>
+        ) : (
+          <span className="sale-card__time muted">{timeAgo(a.created_at, lang)}</span>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function LatestSales() {
+  const { t } = useI18n();
+  const q = useQuery({
+    queryKey: ['activity', 'home-sales'],
+    queryFn: () => api.get<{ activity: Activity[] }>('/activity', { types: 'sale', limit: 9 }),
+    refetchInterval: 30_000,
+  });
+  const list = q.data?.activity ?? [];
+  return (
+    <section className="section">
+      <div className="section__head">
+        <div className="section__title">
+          <h2 className="h2">{t('home.latestSales')}</h2>
+          <p className="small muted">{t('home.salesSub')}</p>
+        </div>
+        <Link to="/activity" className="btn btn--outline btn--sm">{t('common.viewAll')}</Link>
+      </div>
+      {q.isLoading ? (
+        <div className="sales-grid">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} h={118} r={16} />)}</div>
+      ) : list.length === 0 ? (
+        <EmptyState title={t('home.noSales')} action={<Link className="btn btn--outline" to="/explore">{t('home.explore')}</Link>} />
+      ) : (
+        <div className="sales-grid">{list.map((a) => <SaleCard key={a.id} a={a} />)}</div>
+      )}
+    </section>
   );
 }
 
@@ -140,37 +260,11 @@ function TrendingTable() {
   );
 }
 
-function LatestSales() {
-  const { t, lang } = useI18n();
-  const { data } = useQuery({ queryKey: ['activity', 'home-sales'], queryFn: () => api.get<{ activity: Activity[] }>('/activity', { types: 'sale', limit: 6 }) });
-  return (
-    <div className="panel">
-      <div className="panel__head"><span>{t('home.latestSales')}</span><Link to="/activity" className="small link">{t('common.viewAll')}</Link></div>
-      <div>
-        {(data?.activity ?? []).map((a) => (
-          <Link key={a.id} to={`/item/${a.collection_slug}/${a.token_id}`} className="row" style={{ padding: '10px 18px', borderBottom: '1px solid var(--line)' }}>
-            <span className="thumb thumb--sm" style={{ position: 'relative' }}>
-              <TokenArt collection={{ address: a.collection, art_style: a.art_style }} token={{ token_id: a.token_id!, image_url: a.token_image, attributes: a.token_attributes }} />
-            </span>
-            <span style={{ flex: 1, minWidth: 0 }}>
-              <span className="strong small" style={{ display: 'block' }}>{tokenLabel(a.token_name, a.token_id)}</span>
-              <span className="tiny muted">{timeAgo(a.created_at, lang)}</span>
-            </span>
-            <span className="strong mono-num">{eth(a.price_wei)} ETH</span>
-          </Link>
-        ))}
-        {!data && <div style={{ padding: 18 }}><Skeleton h={160} /></div>}
-      </div>
-    </div>
-  );
-}
-
 export default function Home() {
   const { t } = useI18n();
-  const { data: drops } = useQuery({ queryKey: ['drops', 'all'], queryFn: () => api.get<{ drops: DropListItem[] }>('/drops') });
+  const { data: drops, isLoading } = useQuery({ queryKey: ['drops', 'all'], queryFn: () => api.get<{ drops: DropListItem[] }>('/drops') });
   const list = drops?.drops ?? [];
-  const featured = list.find((d) => d.collection.slug === GIWA_COWS.slug && d.status !== 'ended') ?? list.find((d) => d.status === 'live') ?? list[0];
-  const official = list.find((d) => d.collection.slug === GIWA_COWS.slug)?.collection;
+  const cowsDrop = list.find((d) => d.collection.slug === GIWA_COWS.slug);
 
   return (
     <>
@@ -185,44 +279,16 @@ export default function Home() {
               <Link to="/create" className="btn btn--lg btn--outline">{t('home.launch')}</Link>
             </div>
           </div>
-          <div>{featured ? <FeaturedDrop d={featured} /> : drops ? <CowsTeaser /> : <Skeleton h={520} r={22} />}</div>
+          <div><CowsCard drop={cowsDrop} /></div>
         </div>
       </section>
 
       <div className="container">
+        <FeaturedCollections />
+        <Launchpad drops={list} loading={isLoading} />
+        <LatestSales />
         <TrendingTable />
-
-        <section className="section">
-          <div className="section__head">
-            <h2 className="h2">{t('home.drops')}</h2>
-            <Link to="/launchpad" className="btn btn--outline btn--sm">{t('common.viewAll')}</Link>
-          </div>
-          {drops && list.length === 0 ? (
-            <EmptyState title={t('lp.emptyLive')} action={<Link className="btn" to="/create">{t('lp.create')}</Link>} />
-          ) : (
-            <div className="drop-grid">{list.slice(0, 3).map((d) => <DropCard key={d.collection.address} d={d} />)}</div>
-          )}
-        </section>
-
-        <section className="section" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 18 }}>
-          <LatestSales />
-          {official && (
-            <Link to={`/${GIWA_COWS.slug}`} className="panel" style={{ display: 'grid', gridTemplateRows: '180px auto' }}>
-              <div style={{ overflow: 'hidden', position: 'relative' }}><SmartImage src={BRAND.websiteBanner} alt={GIWA_COWS.name} fallback={<TileArt seed="official" wide />} /></div>
-              <div className="panel__body" style={{ display: 'grid', gap: 12 }}>
-                <div className="row" style={{ gap: 8 }}><span className="pill pill--outline">{t('home.official')}</span></div>
-                <div className="row" style={{ gap: 6 }}><span className="h2">{official.name}</span><Badge official size={18} /></div>
-                <p className="soft">{t('home.officialBody')}</p>
-                <div className="stats">
-                  <div className="stat"><span className="stat__value">{official.floor_wei ? `${eth(official.floor_wei)} ETH` : '—'}</span><span className="stat__label">{t('common.floor')}</span></div>
-                  <div className="stat"><span className="stat__value">{eth(official.volume_wei)} ETH</span><span className="stat__label">{t('common.volume')}</span></div>
-                  <div className="stat"><span className="stat__value">{official.owners_count.toLocaleString()}</span><span className="stat__label">{t('common.owners')}</span></div>
-                </div>
-                <span className="btn btn--sm" style={{ justifySelf: 'start' }}>{t('home.viewCollection')}</span>
-              </div>
-            </Link>
-          )}
-        </section>
+        <FaqSection only={['marketplace', 'launchpad']} />
       </div>
     </>
   );

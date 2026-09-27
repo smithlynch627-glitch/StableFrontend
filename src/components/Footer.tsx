@@ -38,8 +38,14 @@ export function Footer() {
             <Link to={`/${GIWA_COWS.slug}`}>{GIWA_COWS.name}</Link>
           </div>
           <div>
-            <h4>{t('footer.resources')}</h4>
+            <h4>{t('footer.help')}</h4>
+            <Link to="/faq#marketplace">{t('footer.marketFaq')}</Link>
+            <Link to="/faq#launchpad">{t('footer.launchFaq')}</Link>
+            <Link to="/security">{t('footer.security')}</Link>
             <Link to="/support">{t('nav.support')}</Link>
+          </div>
+          <div>
+            <h4>{t('footer.resources')}</h4>
             <Link to="/terms">{t('legal.termsFull')}</Link>
             <Link to="/privacy">{t('legal.privacyFull')}</Link>
             <a href={LINKS.docs} target="_blank" rel="noreferrer">{t('footer.docs')}</a>

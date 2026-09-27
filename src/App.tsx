@@ -21,6 +21,8 @@ const Studio = lazy(() => import('./pages/Studio'));
 const Support = lazy(() => import('./pages/Support'));
 const Security = lazy(() => import('./pages/Security'));
 const Legal = lazy(() => import('./pages/Legal'));
+const FaqPage = lazy(() => import('./pages/Faq'));
+const XConnected = lazy(() => import('./pages/XConnected'));
 
 function ScrollTop() {
   const { pathname } = useLocation();
@@ -53,6 +55,8 @@ export default function App() {
             <Route path="/studio/:slug" element={<Studio />} />
             <Route path="/support" element={<Support />} />
             <Route path="/security" element={<Security />} />
+            <Route path="/faq" element={<FaqPage />} />
+            <Route path="/x/connected" element={<XConnected />} />
             <Route path="/terms" element={<Legal kind="terms" />} />
             <Route path="/privacy" element={<Legal kind="privacy" />} />
             <Route path="*" element={<NotFound />} />

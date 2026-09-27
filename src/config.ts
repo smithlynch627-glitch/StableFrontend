@@ -18,7 +18,7 @@ export const BRAND = {
 export const GIWA_COWS = {
   name: 'GIWA COWS',
   slug: 'giwa-cows',
-  supply: 2222,
+  supply: 3333,
   x: env.VITE_GIWA_COWS_X || '',
   logo: `${CDN}/v1790232900/giwa_cow_logo.jpg`,
   banner: `${CDN}/v1790232888/giwa_cows_2500x1500.jpg`,

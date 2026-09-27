@@ -1,195 +1,136 @@
-// Create page building blocks: image fields with size/format guidance, pre-reveal options, and a metadata check.
-import { useEffect, useRef, useState } from 'react';
+// Create page building blocks: image-link fields with a live preview and size check, the pre-reveal picker
+// (image link or metadata link), and the metadata check for https / ar folders.
+import { useEffect, useId, useRef, useState } from 'react';
 import { useI18n } from '../i18n';
 import { api } from '../lib/api';
 import { useAppConfig } from '../lib/appConfig';
-import { useAuthedApi } from '../lib/tx';
-import { errorMessage } from '../lib/actions';
 import { IconAlert, IconCheck } from './Icons';
-import { SmartImage } from './Art';
-import { useToast } from './ui';
+import { SmartImage, fixImageUrl } from './Art';
 
-const MB = 1024 * 1024;
 export const toHttp = (u: string) => (u.startsWith('ipfs://') ? `https://ipfs.io/ipfs/${u.slice(7).replace(/^ipfs\//, '')}` : u.startsWith('ar://') ? `https://arweave.net/${u.slice(5)}` : u);
-const isImageLink = (u: string) => /^(https:\/\/|ipfs:\/\/|ar:\/\/)\S+$/i.test(u.trim());
+export const isImageLink = (u: string) => /^(https:\/\/|ipfs:\/\/|ar:\/\/)\S+$/i.test(u.trim());
 
 /** Every image type browsers display: PNG, JPG, GIF, WebP, AVIF, SVG, BMP. */
 export const IMAGE_ACCEPT = 'image/png,image/jpeg,image/gif,image/webp,image/avif,image/svg+xml,image/bmp,.png,.jpg,.jpeg,.gif,.webp,.avif,.svg,.bmp';
-const KEEP_AS_IS = /^image\/(gif|svg\+xml)$/; // animated GIFs and vector SVGs are never re-encoded
 
-type Info = { w: number; h: number; mb: number; format: string };
-// Some systems (often Windows) give AVIF, SVG or BMP files an empty type, so the file name decides then.
-const EXT_TYPE: Record<string, string> = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif', svg: 'image/svg+xml', bmp: 'image/bmp' };
-const typeOf = (file: File) => file.type || EXT_TYPE[file.name.split('.').pop()?.toLowerCase() || ''] || '';
-const withType = (file: File) => (file.type || !typeOf(file) ? file : new File([file], file.name, { type: typeOf(file) }));
-const formatOf = (file: File) => (typeOf(file).split('/')[1] || file.name.split('.').pop() || '?').replace('svg+xml', 'svg').toUpperCase().replace('JPEG', 'JPG');
-export async function readInfo(file: File): Promise<Info> {
-  // SVG cannot go through createImageBitmap in every browser, so its size is read with an <img>.
-  if (typeOf(file) === 'image/svg+xml') {
-    const url = URL.createObjectURL(withType(file)); // an SVG only opens with its type set
-    try {
-      const img = new Image();
-      await new Promise<void>((ok, fail) => { img.onload = () => ok(); img.onerror = () => fail(new Error('This SVG could not be read.')); img.src = url; });
-      return { w: img.naturalWidth || 1000, h: img.naturalHeight || 1000, mb: file.size / MB, format: 'SVG' };
-    } finally {
-      URL.revokeObjectURL(url);
-    }
-  }
-  try {
-    const bmp = await createImageBitmap(file);
-    const info = { w: bmp.width, h: bmp.height, mb: file.size / MB, format: formatOf(file) };
-    bmp.close();
-    return info;
-  } catch {
-    // Older browsers without AVIF decoding in createImageBitmap: an <img> can still read the size.
-    const url = URL.createObjectURL(file);
-    try {
-      const img = new Image();
-      await new Promise<void>((ok, fail) => { img.onload = () => ok(); img.onerror = () => fail(new Error(`This browser cannot open ${formatOf(file)} images. Try PNG, JPG or WebP.`)); img.src = url; });
-      return { w: img.naturalWidth, h: img.naturalHeight, mb: file.size / MB, format: formatOf(file) };
-    } finally {
-      URL.revokeObjectURL(url);
-    }
-  }
+/** The URL the browser loads for a link: ar:// through arweave.net, IPFS through the preferred gateway. */
+export const previewUrl = (link: string, gateway?: string | null) => (link.startsWith('ar://') ? toHttp(link) : fixImageUrl(toHttp(link), gateway));
+
+type Probe = { state: 'idle' | 'format' | 'loading' | 'ok' | 'bad'; w: number; h: number };
+
+/** Loads a pasted image link (after a short pause in typing) to check it opens and to read its size. */
+export function useImageProbe(link: string): Probe & { src: string } {
+  const { ipfsGateway } = useAppConfig();
+  const v = link.trim();
+  const src = v && isImageLink(v) ? previewUrl(v, ipfsGateway) : '';
+  const [p, setP] = useState<Probe>({ state: 'idle', w: 0, h: 0 });
+  useEffect(() => {
+    if (!v) return setP({ state: 'idle', w: 0, h: 0 });
+    if (!src) return setP({ state: 'format', w: 0, h: 0 });
+    setP({ state: 'loading', w: 0, h: 0 });
+    let alive = true;
+    const img = new Image();
+    img.onload = () => alive && setP({ state: 'ok', w: img.naturalWidth, h: img.naturalHeight });
+    img.onerror = () => alive && setP({ state: 'bad', w: 0, h: 0 });
+    const start = window.setTimeout(() => { img.src = src; }, 350);
+    const giveUp = window.setTimeout(() => alive && setP((s) => (s.state === 'loading' ? { state: 'bad', w: 0, h: 0 } : s)), 20_000);
+    return () => { alive = false; window.clearTimeout(start); window.clearTimeout(giveUp); img.onload = null; img.onerror = null; };
+  }, [v, src]);
+  return { ...p, src };
 }
 
-/** Resizes to maxDim and re-encodes to WebP until it fits maxBytes (GIFs stay animated and SVGs stay vector, as-is). */
-export async function fitImage(input: File, maxDim: number, maxBytes: number): Promise<File> {
-  const file = withType(input);
-  const tooBig = () => new Error(`${formatOf(file)} is ${(file.size / MB).toFixed(1)} MB; the limit here is ${(maxBytes / MB).toFixed(0)} MB. Use a smaller file or paste a link.`);
-  if (KEEP_AS_IS.test(file.type)) {
-    if (file.size > maxBytes) throw tooBig();
-    return file;
-  }
-  const bmp = await createImageBitmap(file).catch(() => null);
-  if (!bmp) {
-    // Cannot be re-encoded in this browser: uploaded as-is when it already fits.
-    if (file.size > maxBytes) throw tooBig();
-    return file;
-  }
-  if (file.size <= maxBytes && Math.max(bmp.width, bmp.height) <= maxDim) { bmp.close(); return file; }
-  let dim = Math.min(maxDim, Math.max(bmp.width, bmp.height));
-  for (let q = 0.92; ; q -= 0.08) {
-    const scale = dim / Math.max(bmp.width, bmp.height);
-    const c = document.createElement('canvas');
-    c.width = Math.round(bmp.width * scale);
-    c.height = Math.round(bmp.height * scale);
-    c.getContext('2d')!.drawImage(bmp, 0, 0, c.width, c.height);
-    const blob: Blob = await new Promise((r) => c.toBlob((b) => r(b!), 'image/webp', q));
-    if (blob.size <= maxBytes || q < 0.5) {
-      bmp.close();
-      return new File([blob], file.name.replace(/\.\w+$/, '') + '.webp', { type: 'image/webp' });
-    }
-    if (q < 0.6) dim = Math.round(dim * 0.8);
-  }
-}
-
-function InfoLine({ info, want }: { info: Info; want: { w: number; h: number } }) {
+function SizeInfo({ w, h, want }: { w: number; h: number; want: { w: number; h: number } }) {
   const { t } = useI18n();
-  const ratio = info.w / info.h;
-  const wantRatio = want.w / want.h;
+  if (!w || !h) return null; // SVGs without a set size
   const warns: string[] = [];
-  if (Math.abs(ratio - wantRatio) > 0.08) warns.push(t('img.warnRatio', { r: want.w === want.h ? '1:1' : `${want.w}:${want.h}`.replace('1500:500', '3:1') }));
-  if (info.w < want.w * 0.66 || info.h < want.h * 0.66) warns.push(t('img.warnSmall'));
+  if (Math.abs(w / h - want.w / want.h) > 0.08) warns.push(t('img.warnRatio', { r: want.w === want.h ? '1:1' : `${want.w}:${want.h}`.replace('1500:500', '3:1') }));
+  if (w < want.w * 0.66 || h < want.h * 0.66) warns.push(t('img.warnSmall'));
   return (
     <div className="img-info">
-      <span className="mono-num">{info.w} × {info.h} px</span><span>{info.format}</span><span className="mono-num">{info.mb.toFixed(2)} MB</span>
-      {warns.map((w) => <span key={w} className="img-info__warn"><IconAlert size={13} />{w}</span>)}
+      <span className="img-info__ok"><IconCheck size={13} />{t('img.loaded')}</span>
+      <span className="mono-num">{w} × {h} px</span>
+      {warns.map((x) => <span key={x} className="img-info__warn"><IconAlert size={13} />{x}</span>)}
     </div>
   );
 }
 
-/** Logo / banner: upload (with size guidance and auto-resize) or paste a hosted link. */
-export function ImageField({ label, required, spec, value, onChange, square, maxDim }: {
-  label: string; required?: boolean; spec: { w: number; h: number }; value: string | null; onChange: (url: string | null) => void; square?: boolean; maxDim: number;
+const IconPicture = () => (
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <rect x="3" y="4" width="18" height="16" rx="3" /><circle cx="9" cy="10" r="1.8" /><path d="m21 16-5-5-9 9" />
+  </svg>
+);
+
+function ProbeHint({ p }: { p: Probe }) {
+  const { t } = useI18n();
+  if (p.state === 'format') return <span className="hint hint--bad">{t('img.linkFormat')}</span>;
+  if (p.state === 'bad') return <span className="hint hint--bad">{t('img.linkBad')}</span>;
+  if (p.state === 'loading') return <span className="hint">{t('img.linkLoading')}</span>;
+  return null;
+}
+
+/** Logo / banner from a hosted link (https://, ipfs:// or ar://). Nothing is uploaded to STABLE. */
+export function ImageField({ label, required, spec, value, onChange, square }: {
+  label: string; required?: boolean; spec: { w: number; h: number }; value: string | null; onChange: (url: string | null) => void; square?: boolean;
 }) {
   const { t } = useI18n();
-  const cfg = useAppConfig();
-  const toast = useToast();
-  const authed = useAuthedApi();
-  const input = useRef<HTMLInputElement>(null);
-  const [busy, setBusy] = useState(false);
-  const [info, setInfo] = useState<Info | null>(null);
-  const [link, setLink] = useState('');
-  const limit = cfg.ipfsUploads ? 8 : 2;
-
-  async function pick(file?: File) {
-    if (!file) return;
-    setBusy(true);
-    try {
-      setInfo(await readInfo(file));
-      const fitted = await fitImage(file, maxDim, (limit - 0.1) * MB);
-      const res = await authed.upload<{ url: string }>('/uploads', fitted);
-      onChange(res.url);
-    } catch (e) {
-      toast(errorMessage(e, t), 'error');
-    } finally {
-      setBusy(false);
-    }
-  }
+  const id = useId();
+  const [link, setLink] = useState(value || '');
+  const p = useImageProbe(link);
+  const accepted = p.state === 'ok' ? link.trim() : null;
+  useEffect(() => { if (accepted !== value) onChange(accepted); }, [accepted]); // eslint-disable-line react-hooks/exhaustive-deps
   return (
-    <div className="field">
-      <span className="label">{label}{required && <span className="req">*</span>}</span>
-      <div className={`upload ${square ? 'upload--square' : 'upload--banner'}`} onClick={() => input.current?.click()} role="button" tabIndex={0} onKeyDown={(e) => e.key === 'Enter' && input.current?.click()}>
-        {value && <img src={toHttp(value)} alt="" />}
-        <span className="btn btn--sm btn--outline" style={{ background: 'var(--bg)' }}>
-          {busy ? <><span className="spinner" />{t('create.uploading')}</> : value ? t('create.change') : t('create.upload')}
-        </span>
-        <input ref={input} type="file" accept={IMAGE_ACCEPT} hidden onChange={(e) => pick(e.target.files?.[0])} />
+    <div className="field link-image">
+      <label className="label" htmlFor={id}>{label}{required && <span className="req">*</span>}</label>
+      <div className={`link-image__box ${square ? 'is-square' : 'is-wide'} is-${p.state}`}>
+        {p.state === 'ok' ? <img src={p.src} alt="" /> : (
+          <span className="link-image__empty">
+            {p.state === 'loading' ? <span className="spinner" /> : <IconPicture />}
+            <span className="tiny">{square ? '1:1' : '3:1'} · {spec.w} × {spec.h}</span>
+          </span>
+        )}
       </div>
-      <span className="hint">{t('img.spec', { w: spec.w, h: spec.h, mb: limit })}</span>
-      {info && <InfoLine info={info} want={spec} />}
-      <div className="row" style={{ gap: 6 }}>
-        <input className="input input--sm" placeholder={t('img.orLink')} value={link} onChange={(e) => setLink(e.target.value.trim())} />
-        <button type="button" className="btn btn--sm btn--outline" disabled={!isImageLink(link)} onClick={() => { onChange(link); setInfo(null); }}>{t('img.useLink')}</button>
-      </div>
+      <input id={id} className="input" value={link} onChange={(e) => setLink(e.target.value.trim())} placeholder="https://…  ·  ipfs://…" spellCheck={false} inputMode="url" autoComplete="off" />
+      <ProbeHint p={p} />
+      {p.state === 'ok' ? <SizeInfo w={p.w} h={p.h} want={spec} /> : p.state === 'idle' && <span className="hint">{t('img.linkSpec', { w: spec.w, h: spec.h })}</span>}
     </div>
   );
 }
 
-/** Pre-reveal: upload an image, paste an image link, or paste an existing metadata link. */
+/** Pre-reveal: an image link (STABLE writes the placeholder metadata on-chain) or a link to your own metadata JSON. */
 export function PreRevealPicker({ name, description, value, onChange }: { name: string; description: string; value: string; onChange: (uri: string) => void }) {
   const { t } = useI18n();
-  const cfg = useAppConfig();
-  const toast = useToast();
-  const authed = useAuthedApi();
-  const [mode, setMode] = useState<'upload' | 'image' | 'meta'>('upload');
-  const [info, setInfo] = useState<Info | null>(null);
+  const { ipfsGateway } = useAppConfig();
+  const [mode, setMode] = useState<'image' | 'meta'>(value && !value.startsWith('data:') ? 'meta' : 'image');
+  const [imageLink, setImageLink] = useState(() => {
+    if (!value.startsWith('data:application/json;base64,')) return '';
+    try { return String(JSON.parse(decodeURIComponent(escape(atob(value.split(',')[1])))).image || ''); } catch { return ''; }
+  });
+  const [metaLink, setMetaLink] = useState(value.startsWith('data:') ? '' : value);
+  const [metaPreview, setMetaPreview] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [preview, setPreview] = useState<string | null>(null);
-  const [link, setLink] = useState('');
   const [check, setCheck] = useState<{ ok: boolean; msg: string } | null>(null);
-  const input = useRef<HTMLInputElement>(null);
-  const limit = cfg.ipfsUploads ? 8 : 2;
+  const p = useImageProbe(mode === 'image' ? imageLink : '');
   const meta = (image: string) => `data:application/json;base64,${btoa(unescape(encodeURIComponent(JSON.stringify({ name: `${name || 'Collection'} (unrevealed)`, description, image }))))}`;
 
-  async function pick(file?: File) {
-    if (!file) return;
-    setBusy(true);
-    try {
-      setInfo(await readInfo(file));
-      setPreview(URL.createObjectURL(file));
-      const fitted = await fitImage(file, 2000, (limit - 0.1) * MB);
-      const res = await authed.upload<{ uri: string; image: string }>('/uploads/prereveal', fitted, { name: `${name || 'Collection'} (unrevealed)` });
-      onChange(res.uri);
-    } catch (e) {
-      setPreview(null);
-      toast(errorMessage(e, t), 'error');
-    } finally {
-      setBusy(false);
-    }
-  }
+  // Image mode: the placeholder is ready as soon as the image opens (and follows later name / description edits).
+  useEffect(() => {
+    if (mode !== 'image') return;
+    onChange(p.state === 'ok' ? meta(imageLink.trim()) : '');
+  }, [mode, p.state, imageLink, name, description]); // eslint-disable-line react-hooks/exhaustive-deps
+
   async function useMetaLink() {
     setBusy(true);
     setCheck(null);
+    setMetaPreview(null);
+    onChange('');
     try {
-      const r = await api.get<{ items: { ok: boolean; name?: string; image?: string; error?: string }[] }>('/share/metadata', { uri: link });
+      const r = await api.get<{ items: { ok: boolean; name?: string; image?: string; error?: string }[] }>('/share/metadata', { uri: metaLink });
       const it = r.items[0];
-      if (!it.ok) throw new Error(it.error || 'Not reachable');
+      if (!it?.ok) throw new Error(it?.error || t('img.linkBad'));
       if (!it.image) throw new Error(t('img.noImageField'));
-      setPreview(it.image);
+      setMetaPreview(it.image);
       setCheck({ ok: true, msg: it.name || 'OK' });
-      onChange(link);
+      onChange(metaLink);
     } catch (e: any) {
       setCheck({ ok: false, msg: e.message });
     } finally {
@@ -197,40 +138,37 @@ export function PreRevealPicker({ name, description, value, onChange }: { name: 
     }
   }
 
+  const preview = mode === 'image' ? (p.state === 'ok' ? p.src : null) : metaPreview ? previewUrl(metaPreview, ipfsGateway) : null;
   return (
-    <div className="card card--pad" style={{ display: 'grid', gap: 14 }}>
-      <div className="segmented" role="tablist" style={{ justifySelf: 'start', flexWrap: 'wrap' }}>
-        {(['upload', 'image', 'meta'] as const).map((m) => (
-          <button key={m} type="button" aria-pressed={mode === m} onClick={() => { setMode(m); setCheck(null); }}>{t(`img.mode.${m}`)}</button>
+    <div className="prereveal-card">
+      <div className="segmented prereveal-card__tabs" role="tablist" aria-label={t('art.prereveal')}>
+        {(['image', 'meta'] as const).map((m) => (
+          <button key={m} type="button" role="tab" aria-selected={mode === m} aria-pressed={mode === m} onClick={() => { setMode(m); setCheck(null); if (m === 'meta' && !metaPreview) onChange(''); }}>{t(`img.mode.${m}`)}</button>
         ))}
       </div>
       <div className="prereveal">
-        <div className="prereveal__preview">{preview || (value && !value.startsWith('data:')) ? <img src={preview || toHttp(value)} alt="" /> : <span className="muted small">{t('img.previewHere')}</span>}</div>
-        <div style={{ display: 'grid', gap: 10, alignContent: 'start', minWidth: 0 }}>
-          {mode === 'upload' && (
+        <div className={`prereveal__preview${preview ? ' has-image' : ''}`}>
+          {preview ? <img src={preview} alt="" /> : busy || p.state === 'loading' ? <span className="spinner" /> : <span className="muted small"><IconPicture /><br />{t('img.previewHere')}</span>}
+        </div>
+        <div className="prereveal__form">
+          {mode === 'image' ? (
             <>
-              <button type="button" className="btn btn--outline" onClick={() => input.current?.click()} disabled={busy}>{busy ? <><span className="spinner" />{t('create.uploading')}</> : t('art.pickImage')}</button>
-              <input ref={input} type="file" hidden accept={IMAGE_ACCEPT} onChange={(e) => pick(e.target.files?.[0])} />
-              <span className="hint">{t('img.specPre', { mb: limit })}</span>
-              {info && <InfoLine info={info} want={{ w: 1000, h: 1000 }} />}
+              <label className="label" htmlFor="pre-img">{t('img.mode.image')}</label>
+              <input id="pre-img" className="input" placeholder="https://…  ·  ipfs://…" value={imageLink} onChange={(e) => setImageLink(e.target.value.trim())} spellCheck={false} inputMode="url" autoComplete="off" />
+              <ProbeHint p={p} />
+              {p.state === 'idle' && <span className="hint">{t('img.imageLinkHint')}</span>}
+              {p.state === 'ok' && <SizeInfo w={p.w} h={p.h} want={{ w: 1000, h: 1000 }} />}
             </>
-          )}
-          {mode === 'image' && (
+          ) : (
             <>
-              <input className="input" placeholder="https://… or ipfs://…" value={link} onChange={(e) => setLink(e.target.value.trim())} />
-              <span className="hint">{t('img.imageLinkHint')}</span>
-              <button type="button" className="btn btn--outline" disabled={!isImageLink(link)} onClick={() => { setPreview(toHttp(link)); onChange(meta(link)); }}>{t('img.useLink')}</button>
-            </>
-          )}
-          {mode === 'meta' && (
-            <>
-              <input className="input" placeholder="ipfs://…/hidden.json" value={link} onChange={(e) => setLink(e.target.value.trim())} />
+              <label className="label" htmlFor="pre-meta">{t('img.mode.meta')}</label>
+              <input id="pre-meta" className="input" placeholder="ipfs://…/hidden.json" value={metaLink} onChange={(e) => { setMetaLink(e.target.value.trim()); setCheck(null); setMetaPreview(null); onChange(''); }} spellCheck={false} inputMode="url" autoComplete="off" />
               <span className="hint">{t('img.metaLinkHint')}</span>
-              <button type="button" className="btn btn--outline" disabled={!isImageLink(link) || busy} onClick={useMetaLink}>{busy && <span className="spinner" />}{t('img.checkUse')}</button>
+              <button type="button" className="btn btn--outline btn--sm" style={{ justifySelf: 'start' }} disabled={!isImageLink(metaLink) || busy} onClick={useMetaLink}>{busy && <span className="spinner" />}{t('img.checkUse')}</button>
+              {check && !check.ok && <div className="notice notice--strong small"><IconAlert size={14} />{check.msg}</div>}
             </>
           )}
-          {value && !busy && <div className="row small strong" style={{ gap: 6 }}><IconCheck size={15} />{t('img.ready')}</div>}
-          {check && !check.ok && <div className="notice notice--strong small"><IconAlert size={14} />{check.msg}</div>}
+          {value && !busy && <div className="prereveal__ready"><IconCheck size={15} />{t('img.ready')}</div>}
         </div>
       </div>
     </div>

@@ -3,15 +3,14 @@ import { Link } from 'react-router-dom';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useI18n } from '../i18n';
 import { api } from '../lib/api';
-import { eth, num } from '../lib/format';
 import type { Collection } from '../lib/types';
-import { CollectionAvatar, CollectionBanner } from '../components/Art';
-import { Badge, EmptyState, Skeleton } from '../components/ui';
+import { CollectionCard } from '../components/CollectionCard';
+import { EmptyState, Skeleton } from '../components/ui';
 
 const PAGE = 24;
 
 export default function Explore() {
-  const { t, lang } = useI18n();
+  const { t } = useI18n();
   const [sort, setSort] = useState('volume_24h');
   const q = useInfiniteQuery({
     queryKey: ['collections', 'explore', sort],
@@ -45,20 +44,7 @@ export default function Explore() {
         <EmptyState title={t('explore.empty')} action={<Link className="btn" to="/create">{t('home.launch')}</Link>} />
       ) : (
         <div className="drop-grid">
-          {cols.map((c) => (
-            <Link key={c.address} to={`/collection/${c.slug}`} className="col-card">
-              <div className="col-card__banner" style={{ position: 'relative' }}><CollectionBanner collection={c} /></div>
-              <div className="col-card__body">
-                <div className="col-card__avatar" style={{ position: 'relative' }}><CollectionAvatar collection={c} /></div>
-                <div className="row" style={{ gap: 6 }}><span className="h3">{c.name}</span><Badge official={c.is_official} verified={c.verified} /></div>
-                <div className="col-card__stats">
-                  <div><div className="muted tiny">{t('common.floor')}</div><div className="strong">{c.floor_wei ? `${eth(c.floor_wei)}` : '—'}</div></div>
-                  <div><div className="muted tiny">{t('common.volume24h')}</div><div className="strong">{eth(c.volume_24h_wei)}</div></div>
-                  <div><div className="muted tiny">{t('common.items')}</div><div className="strong">{num(c.total_supply, lang)}</div></div>
-                </div>
-              </div>
-            </Link>
-          ))}
+          {cols.map((c) => <CollectionCard key={c.address} c={c} />)}
         </div>
       )}
       {q.hasNextPage && (

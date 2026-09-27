@@ -4,6 +4,8 @@ export interface AppConfig {
   ready: boolean;
   network?: { key: string; name: string; isTestnet: boolean };
   ipfsUploads?: boolean;
+  /** Creators must connect an X account (OAuth) before launching; false when the API has no X app set up. */
+  xConnect?: boolean;
   /** Preferred IPFS gateway (e.g. the owner's Pinata dedicated gateway), ending in /ipfs/ */
   ipfsGateway?: string | null;
   socials?: { x: string | null; discord: string | null; telegram: string | null; website: string | null };

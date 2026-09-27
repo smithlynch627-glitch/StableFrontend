@@ -1,4 +1,4 @@
-import type { SVGProps } from 'react';
+import { useId, type SVGProps } from 'react';
 
 type P = SVGProps<SVGSVGElement> & { size?: number };
 const base = ({ size = 18, ...p }: P) => ({
@@ -43,16 +43,33 @@ export const IconTrash = (p: P) => <svg {...base(p)}><path d="M4 7h16M10 11v6M14
 export const IconBell = (p: P) => <svg {...base(p)}><path d="M6 16V11a6 6 0 0 1 12 0v5l2 2H4z" /><path d="M10 20a2 2 0 0 0 4 0" /></svg>;
 export const IconGlobe = (p: P) => <svg {...base(p)}><circle cx="12" cy="12" r="9" /><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18" /></svg>;
 
+/** The gold tick: verified collections, and (with a deeper gold and a ring) the official STABLE collection. */
 export function IconVerified({ size = 16, official = false }: { size?: number; official?: boolean }) {
+  const id = useId().replace(/:/g, '');
+  const fill = `vg${id}`;
+  const shine = `vs${id}`;
   return (
-    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" className="verified">
+    <svg width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" className={`verified${official ? ' verified--official' : ''}`}>
+      <defs>
+        <linearGradient id={fill} x1="3" y1="2" x2="21" y2="22" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor={official ? '#FFE9A3' : '#FFF0B8'} />
+          <stop offset="0.45" stopColor={official ? '#E7B635' : '#F2C94C'} />
+          <stop offset="1" stopColor={official ? '#9C6B06' : '#C8900E'} />
+        </linearGradient>
+        <linearGradient id={shine} x1="12" y1="2" x2="12" y2="13" gradientUnits="userSpaceOnUse">
+          <stop offset="0" stopColor="#FFFFFF" stopOpacity="0.55" />
+          <stop offset="1" stopColor="#FFFFFF" stopOpacity="0" />
+        </linearGradient>
+      </defs>
       <path
         d="M12 1.8l2.6 1.9 3.2-.2 1 3.1 2.6 1.9-1 3.1 1 3.1-2.6 1.9-1 3.1-3.2-.2L12 22.2l-2.6-1.9-3.2.2-1-3.1-2.6-1.9 1-3.1-1-3.1 2.6-1.9 1-3.1 3.2.2z"
-        fill={official ? 'var(--fg)' : 'var(--bg)'}
-        stroke="var(--fg)"
-        strokeWidth="1.6"
+        fill={`url(#${fill})`}
+        stroke={official ? '#7A5200' : '#B07F0A'}
+        strokeWidth={official ? 1.1 : 0.9}
+        strokeLinejoin="round"
       />
-      <path d="m8 12.3 2.7 2.7L16.2 9.4" fill="none" stroke={official ? 'var(--bg)' : 'var(--fg)'} strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12 3.4l2.2 1.6 2.7-.2.9 2.6 2.2 1.6-.5 1.6H4.5L4 9l2.2-1.6.9-2.6 2.7.2z" fill={`url(#${shine})`} />
+      <path d="m8 12.3 2.7 2.7L16.2 9.4" fill="none" stroke={official ? '#3B2600' : '#FFFFFF'} strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   );
 }
