@@ -343,7 +343,7 @@ function ItemsMarket({ c, onAnalytics }: { c: Collection; onAnalytics: () => voi
       </div>
 
       <BulkBar bulk={bulk} />
-      {sweeping && (
+      {sweeping && createPortal(
         <div className="sweep-bar" role="region" aria-label={t('col.sweep')}>
           <div style={{ display: 'grid', gap: 2, minWidth: 110 }}>
             <span className="strong">{t('col.selected', { n: selected.size })}</span>
@@ -357,7 +357,8 @@ function ItemsMarket({ c, onAnalytics }: { c: Collection; onAnalytics: () => voi
               {t('col.sweepBuy', { n: selected.size })}
             </button>
           </div>
-        </div>
+        </div>,
+        document.body, // on the page itself an animated parent would pin it to the panel, not the screen
       )}
     </div>
   );

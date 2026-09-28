@@ -780,12 +780,12 @@ main { overflow-x: clip; }
 
 /* ── Motion (respects reduced-motion settings) ───────────────────────────── */
 @keyframes rise { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
-.page > *, .section { animation: rise 0.45s var(--ease) both; }
+.page > *, .section { animation: rise 0.45s var(--ease) backwards; } /* backwards: no transform left behind, so fixed bars (sweep) stay fixed to the screen */
 .page > *:nth-child(2) { animation-delay: 0.04s; }
 .page > *:nth-child(3) { animation-delay: 0.08s; }
 .nft-grid > * { animation: rise 0.4s var(--ease) both; }
 .nft-grid > *:nth-child(-n + 12) { animation-delay: calc(var(--i, 0) * 0.03s); }
-.wizard__panel { animation: rise 0.35s var(--ease) both; }
+.wizard__panel { animation: rise 0.35s var(--ease) backwards; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-delay: 0s !important; transition-duration: 0.01ms !important; }
 }
@@ -833,7 +833,7 @@ main { overflow-x: clip; }
 /* ── Collection tabs & toolbar ──────────────────────────────────────────── */
 .col-tabs { position: sticky; top: var(--header-h); z-index: 20; background: color-mix(in srgb, var(--bg) 94%, transparent); backdrop-filter: blur(10px); margin: 0 calc(-1 * var(--gutter)); padding: 0 var(--gutter); }
 .col-tabs .tabs { margin-bottom: 0; }
-.tab-panel { padding-top: 22px; animation: fade-up 0.35s var(--ease) both; }
+.tab-panel { padding-top: 22px; animation: fade-up 0.35s var(--ease) backwards; }
 .stat__sub { display: block; font-size: 12px; font-weight: 600; color: var(--mute); letter-spacing: 0; }
 .toolbar__sort { width: auto; height: 42px; }
 .toolbar__btn { height: 42px; gap: 7px; }
@@ -2019,3 +2019,9 @@ main { overflow-x: clip; }
   .marquee__track, .cows-ticker__track { animation: none !important; }
   .cows-hero2__banner, .cows-glow, .cows-utility::before, .cows-utility__scan { animation: none !important; }
 }
+
+/* Legal pages written in the admin panel: paragraphs, bullet lists, links. */
+.legal__intro { display: grid; gap: 10px; }
+.legal__intro .lead { margin: 0; }
+.legal__list { margin: 0; padding-left: 20px; display: grid; gap: 6px; line-height: 1.65; }
+.legal__body strong, .legal__intro strong { color: var(--fg); font-weight: 700; }

@@ -9,6 +9,8 @@ export interface AppConfig {
   /** Preferred IPFS gateway (e.g. the owner's Pinata dedicated gateway), ending in /ipfs/ */
   ipfsGateway?: string | null;
   socials?: { x: string | null; discord: string | null; telegram: string | null; website: string | null };
+  /** Logo and GIWA COWS artwork set in the admin panel (null fields = built-in defaults). */
+  branding?: { logo: string | null; cowsLogo: string | null; cowsBanner: string | null; cowsImages: string[] | null };
   chainId: number;
   rpcUrl: string;
   explorerUrl: string;

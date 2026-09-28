@@ -45,6 +45,21 @@ export const GIWA_COWS = {
   ],
 };
 
+/** Image links the admin panel may set: https, or ipfs:// (opened through a gateway). */
+const IMAGE_LINK = /^(https:\/\/[^\s"'<>\\]{4,500}|ipfs:\/\/[A-Za-z0-9._\-/]{10,500})$/;
+export interface Branding { logo?: string | null; cowsLogo?: string | null; cowsBanner?: string | null; cowsImages?: string[] | null }
+
+/** Applies the logo and GIWA COWS artwork set in the admin panel (read once at start-up, before the first render). */
+export function applyBranding(b?: Branding | null) {
+  if (!b) return;
+  const ok = (v?: string | null): v is string => typeof v === 'string' && IMAGE_LINK.test(v);
+  if (ok(b.logo)) BRAND.logo = b.logo;
+  if (ok(b.cowsLogo)) GIWA_COWS.logo = b.cowsLogo;
+  if (ok(b.cowsBanner)) GIWA_COWS.banner = b.cowsBanner;
+  const art = Array.isArray(b.cowsImages) ? b.cowsImages.filter(ok).slice(0, 60) : [];
+  if (art.length) GIWA_COWS.images = art;
+}
+
 export const API_URL = (env.VITE_API_URL || 'http://localhost:8080').replace(/\/$/, '');
 
 /**

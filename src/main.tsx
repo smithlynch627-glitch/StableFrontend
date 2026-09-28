@@ -8,7 +8,8 @@ import { I18nProvider } from './i18n';
 import { AppConfigProvider } from './lib/appConfig';
 import { initWagmi, wagmiConfig } from './lib/wagmi';
 import { CurrencyProvider } from './lib/currency';
-import { API_URL, PINNED, makeChain, setActiveChain } from './config';
+import { API_URL, BRAND, PINNED, applyBranding, makeChain, setActiveChain } from './config';
+import { fixImageUrl } from './components/Art';
 import type { AppConfig } from './lib/types';
 import { ToastProvider } from './components/ui';
 import { WalletProvider } from './components/wallet';
@@ -25,6 +26,14 @@ async function boot() {
   try {
     const res = await fetch(`${API_URL}/api/config`, { signal: AbortSignal.timeout(8000) });
     const cfg = (await res.json()) as AppConfig;
+    // Logo and GIWA COWS artwork from the admin panel: changed there, live on the next page load.
+    applyBranding(cfg?.branding);
+    if (cfg?.branding?.logo) {
+      for (const el of document.querySelectorAll('link[rel~="icon"], link[rel="apple-touch-icon"]')) {
+        el.removeAttribute('type');
+        el.setAttribute('href', fixImageUrl(BRAND.logo, cfg.ipfsGateway));
+      }
+    }
     // The server can never move wallets to another chain: a build with VITE_CHAIN_ID stays on that chain, and
     // trading is refused (see actions.need) if the server claims a different one.
     if (cfg?.chainId && (!PINNED.chainId || cfg.chainId === PINNED.chainId)) {

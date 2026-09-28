@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { GIWA_COWS } from '../config';
-import { TileArt } from './Art';
+import { useAppConfig } from '../lib/appConfig';
+import { TileArt, fixImageUrl } from './Art';
 import { IconArrowLeft, IconArrowRight, IconClose } from './Icons';
 
-const N = GIWA_COWS.images.length;
-export const cowIndex = (i: number) => ((i % N) + N) % N;
+// The artwork list can be changed in the admin panel, so its length is read each time.
+const count = () => Math.max(1, GIWA_COWS.images.length);
+export const cowIndex = (i: number) => ((i % count()) + count()) % count();
 
 /** A resized copy from Cloudinary (the site's art CDN); any other host is returned unchanged. */
 export function cowSrc(src: string, w: number) {
@@ -17,7 +19,9 @@ export const reducedMotion = () => typeof window !== 'undefined' && !!window.mat
 
 /** Official GIWA COWS artwork, resized for its slot. Falls back to the original file, then to generated art. */
 export function CowArt({ index, w = 480, eager = false, alt }: { index: number; w?: number; eager?: boolean; alt?: string }) {
-  const src = GIWA_COWS.images[cowIndex(index)];
+  const { ipfsGateway } = useAppConfig();
+  const link = GIWA_COWS.images[cowIndex(index)];
+  const src = link ? fixImageUrl(link, ipfsGateway) : link;
   const [stage, setStage] = useState<0 | 1 | 2>(0);
   const [loaded, setLoaded] = useState(false);
   const ref = useRef<HTMLImageElement>(null);
@@ -40,11 +44,11 @@ export function CowArt({ index, w = 480, eager = false, alt }: { index: number; 
   );
 }
 
-function preload(index: number, w: number) {
-  const src = GIWA_COWS.images[cowIndex(index)];
-  if (!src) return;
+function preload(index: number, w: number, gateway?: string | null) {
+  const link = GIWA_COWS.images[cowIndex(index)];
+  if (!link) return;
   const img = new Image();
-  img.src = cowSrc(src, w);
+  img.src = cowSrc(fixImageUrl(link, gateway), w);
 }
 
 /** A counter that ticks every `ms` while the tab is visible and not paused. */
@@ -84,9 +88,10 @@ export function Reveal({ children, delay = 0, className = '', as: Tag = 'div' }:
 /** Artwork that crossfades to the next piece every few seconds (pauses on hover). */
 export function CowRotator({ start = 0, interval = 3400, w = 720, label }: { start?: number; interval?: number; w?: number; label?: ReactNode }) {
   const [paused, setPaused] = useState(false);
+  const { ipfsGateway } = useAppConfig();
   const [i] = useTicker(interval, paused);
   const cur = start + i;
-  useEffect(() => { preload(cur + 1, w); }, [cur, w]);
+  useEffect(() => { preload(cur + 1, w, ipfsGateway); }, [cur, w, ipfsGateway]);
   const layers = i === 0 ? [cur] : [cur - 1, cur];
   return (
     <div className="cow-rotator" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
@@ -104,8 +109,9 @@ export function CowRotator({ start = 0, interval = 3400, w = 720, label }: { sta
 /** A fanned deck of artwork: the front card flies off and the next one slides forward. */
 export function CowDeck({ interval = 2800, labels }: { interval?: number; labels: { prev: string; next: string } }) {
   const [paused, setPaused] = useState(false);
+  const { ipfsGateway } = useAppConfig();
   const [i, setI] = useTicker(interval, paused);
-  useEffect(() => { preload(i + 3, 720); }, [i]);
+  useEffect(() => { preload(i + 3, 720, ipfsGateway); }, [i, ipfsGateway]);
   return (
     <div className="cow-deck" onMouseEnter={() => setPaused(true)} onMouseLeave={() => setPaused(false)}>
       <div className="cow-deck__stack">
@@ -121,7 +127,7 @@ export function CowDeck({ interval = 2800, labels }: { interval?: number; labels
       </div>
       <div className="cow-deck__controls">
         <button type="button" className="cow-deck__btn" onClick={() => setI(i - 1)} aria-label={labels.prev}><IconArrowLeft size={18} /></button>
-        <span className="cow-deck__count mono-num">{String(cowIndex(i) + 1).padStart(2, '0')}<span> / {String(N).padStart(2, '0')}</span></span>
+        <span className="cow-deck__count mono-num">{String(cowIndex(i) + 1).padStart(2, '0')}<span> / {String(count()).padStart(2, '0')}</span></span>
         <button type="button" className="cow-deck__btn" onClick={() => setI(i + 1)} aria-label={labels.next}><IconArrowRight size={18} /></button>
       </div>
     </div>
@@ -223,7 +229,7 @@ export function CowLightbox({ index, onClose, onMove, labels }: { index: number;
       <button type="button" className="cow-lightbox__nav cow-lightbox__nav--prev" onClick={(e) => { e.stopPropagation(); onMove(index - 1); }} aria-label={labels.prev}><IconArrowLeft size={22} /></button>
       <figure key={index} className="cow-lightbox__art" onClick={(e) => e.stopPropagation()}>
         <CowArt index={index} w={1200} eager />
-        <figcaption className="mono-num">{GIWA_COWS.name} · {String(cowIndex(index) + 1).padStart(2, '0')} / {N}</figcaption>
+        <figcaption className="mono-num">{GIWA_COWS.name} · {String(cowIndex(index) + 1).padStart(2, '0')} / {count()}</figcaption>
       </figure>
       <button type="button" className="cow-lightbox__nav cow-lightbox__nav--next" onClick={(e) => { e.stopPropagation(); onMove(index + 1); }} aria-label={labels.next}><IconArrowRight size={22} /></button>
     </div>

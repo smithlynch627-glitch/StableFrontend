@@ -10,6 +10,7 @@ import { useAppConfig } from '../lib/appConfig';
 import { eth, num, pct, safeHref } from '../lib/format';
 import type { Collection, DropState, Token, TraitGroup } from '../lib/types';
 import { NftCard } from '../components/NftCard';
+import { fixImageUrl } from '../components/Art';
 import { IconVerified, IconArrowRight, IconCheck, IconLock } from '../components/Icons';
 import { Accordion } from '../components/Faq';
 import {
@@ -24,7 +25,7 @@ type SectionId = 'overview' | 'market' | 'utility' | 'arts' | 'roadmap' | 'faq';
 export default function GiwaCows() {
   const { t, lang } = useI18n();
   const copy = cowsContent(lang);
-  const { socials } = useAppConfig();
+  const { socials, ipfsGateway } = useAppConfig();
   const col = useQuery({
     queryKey: ['collection', GIWA_COWS.slug],
     queryFn: () => api.get<{ collection: Collection; drop: DropState | null }>(`/collections/${GIWA_COWS.slug}`),
@@ -51,7 +52,7 @@ export default function GiwaCows() {
     <div className="cows-page">
       <section className="cows-stage cows-hero2">
         <div className="cows-hero2__bg" aria-hidden="true">
-          <img src={GIWA_COWS.banner} alt="" className="cows-hero2__banner" />
+          <img src={fixImageUrl(GIWA_COWS.banner, ipfsGateway)} alt="" className="cows-hero2__banner" />
           <span className="cows-glow cows-glow--a" />
           <span className="cows-glow cows-glow--b" />
           <span className="cows-grid" />

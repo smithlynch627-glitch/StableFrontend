@@ -62,7 +62,13 @@ export function XConnect({ returnPath, onChange, onBeforeRedirect }: { returnPat
 
   useEffect(() => { onChange?.(x.username); }, [x.username]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const xKey = ['x-me', address?.toLowerCase() ?? ''];
   const refresh = useCallback(() => qc.invalidateQueries({ queryKey: ['x-me', address?.toLowerCase() ?? ''] }), [qc, address]);
+  // Drop any in-flight status check, so an older answer can't be taken for the new connection.
+  const forget = async () => {
+    await qc.cancelQueries({ queryKey: xKey });
+    qc.setQueryData<XMe | null>(xKey, (d) => (d ? { ...d, connected: false, username: null } : d));
+  };
 
   // Connected while we were waiting: the API is the source of truth (the X window's message is only a hint).
   useEffect(() => {
@@ -107,6 +113,14 @@ export function XConnect({ returnPath, onChange, onBeforeRedirect }: { returnPat
     setBusy('connect');
     started.current = Date.now();
     try {
+      if (!w) {
+        // First sign-in on this device: this wallet may have connected X before, then there is nothing to do.
+        const me = await authed.get<XMe>('/x/me');
+        x.markSignedIn();
+        qc.setQueryData(xKey, me);
+        if (me.connected) return;
+      }
+      await forget();
       const { url } = await authed.post<{ url: string }>('/x/start', { returnPath });
       x.markSignedIn();
       if (!/^https:\/\//.test(url) && !/^http:\/\/(127\.0\.0\.1|localhost)[:/]/.test(url)) throw new Error('Unexpected X link');
@@ -130,7 +144,9 @@ export function XConnect({ returnPath, onChange, onBeforeRedirect }: { returnPat
   async function disconnect() {
     setBusy('disconnect');
     try {
+      await qc.cancelQueries({ queryKey: xKey });
       await authed.del('/x');
+      await forget();
       await refresh();
     } catch (e) {
       toast(errorMessage(e, t), 'error');
