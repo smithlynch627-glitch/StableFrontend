@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { useI18n } from '../i18n';
 import { eth, num } from '../lib/format';
 import type { DropListItem } from '../lib/types';
-import { CollectionAvatar, CollectionBanner } from './Art';
+import { CollectionAvatar } from './Art';
 import { Badge, CountdownLabel, Progress } from './ui';
 
 export function DropStatusPill({ d }: { d: Pick<DropListItem, 'status' | 'livePhase' | 'nextPhase'> }) {
@@ -26,15 +26,12 @@ export function DropCard({ d }: { d: DropListItem }) {
     <Link to={`/launchpad/${c.slug}`} className="drop-card">
       <div className="drop-card__media">
         <DropStatusPill d={d} />
-        {c.banner_url || c.art_style === 'tile' ? <CollectionBanner collection={c} /> : <CollectionAvatar collection={c} />}
+        <CollectionAvatar collection={c} />
       </div>
       <div className="drop-card__body">
-        <div className="row" style={{ gap: 10 }}>
-          <span className="thumb thumb--sm" style={{ position: 'relative' }}><CollectionAvatar collection={c} /></span>
-          <div style={{ minWidth: 0 }}>
-            <div className="row" style={{ gap: 6 }}><span className="h3" style={{ fontSize: 16 }}>{c.name}</span><Badge official={c.is_official} verified={c.verified} size={15} /></div>
-            <div className="tiny muted">{phase?.name}</div>
-          </div>
+        <div style={{ minWidth: 0 }}>
+          <div className="row" style={{ gap: 6 }}><span className="h3" style={{ fontSize: 16 }}>{c.name}</span><Badge official={c.is_official} verified={c.verified} size={15} /></div>
+          <div className="tiny muted">{phase?.name}</div>
         </div>
         <div className="row" style={{ justifyContent: 'space-between' }}>
           <span className="strong">{phasePrice(phase?.priceWei, t('lp.free'))}</span>

@@ -1,10 +1,10 @@
-// About: the collection's story (written by admins), key facts, custom details and links.
+// About: the collection's story (written by the creator in the Studio, or by an admin), key facts, custom details and links.
 import { Link } from 'react-router-dom';
 import { useI18n } from '../../i18n';
 import { dateTime, explorerCollectionUrl, num, safeHref, short } from '../../lib/format';
 import { useAppConfig } from '../../lib/appConfig';
 import type { Collection } from '../../lib/types';
-import { CollectionBanner, SmartImage, TileArt } from '../Art';
+import { CollectionBanner, SmartImage, TileArt, fixImageUrl } from '../Art';
 import { IconExternal } from '../Icons';
 import { SocialIcon } from '../Social';
 import { CopyButton } from '../ui';
@@ -58,6 +58,15 @@ export function AboutTab({ c }: { c: Collection }) {
                 <div key={it.label}><dt>{it.label}</dt><dd>{it.value}</dd></div>
               ))}
             </dl>
+          )}
+          {!!c.gallery?.length && (
+            <div className="about__gallery" aria-label={t('about.gallery')}>
+              {c.gallery.slice(0, 3).map((src, i) => (
+                <a key={src} href={fixImageUrl(toHttp(src), cfg.ipfsGateway)} target="_blank" rel="noreferrer noopener" aria-label={t('drop.galleryN', { n: i + 2 })}>
+                  <SmartImage src={src} alt={`${c.name} · ${t('drop.galleryN', { n: i + 2 })}`} fallback={<TileArt seed={`${c.address}:g${i}`} />} />
+                </a>
+              ))}
+            </div>
           )}
           {links.length > 0 && (
             <div className="about__links">

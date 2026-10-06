@@ -463,6 +463,8 @@ export interface CreateForm {
   description: string;
   imageUrl: string | null;
   bannerUrl: string | null;
+  /** Up to three extra images for the mint page. */
+  gallery?: string[];
   twitter: string;
   website: string;
   discord?: string;
@@ -526,6 +528,7 @@ export async function createCollection(ctx: ActionCtx, f: CreateForm): Promise<C
       description: f.description,
       imageUrl: f.imageUrl,
       bannerUrl: f.bannerUrl,
+      ...(f.gallery?.length ? { gallery: f.gallery.slice(0, 3) } : {}),
       twitter: f.twitter || null,
       website: f.website || null,
       discord: f.discord || null,

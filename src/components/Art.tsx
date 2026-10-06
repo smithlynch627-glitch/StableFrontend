@@ -65,6 +65,8 @@ export function TileArt({ seed, wide = false }: { seed: string; wide?: boolean }
  */
 const PUBLIC_GATEWAYS = ['https://gateway.pinata.cloud/ipfs/', 'https://w3s.link/ipfs/', 'https://dweb.link/ipfs/'];
 export function imageCandidates(src: string, preferred?: string | null): string[] {
+  // Arweave links open through the public arweave.net gateway.
+  if (/^ar:\/\//i.test(src)) return [`https://arweave.net/${src.slice(5)}`];
   const m = src.match(/^(?:ipfs:\/\/(?:ipfs\/)?|https?:\/\/[^/]+\/ipfs\/)([a-z0-9]{40,})(\/[^?#]*)?/i);
   if (!m) return [src];
   const [, cid, rawPath] = m;
@@ -85,7 +87,7 @@ export const isVideoUrl = (src: string) => /^data:video\//i.test(src) || /\.(mp4
  * NFT media in any browser format: PNG, JPG, GIF, WebP, AVIF, SVG, BMP (as <img>) and MP4/WebM/MOV (as <video>).
  * Links without a file extension are tried as an image first and as a video if no gateway can show them as one.
  */
-export function SmartImage({ src, alt, fallback }: { src: string; alt: string; fallback: ReactNode }) {
+export function SmartImage({ src, alt, fallback, onSize }: { src: string; alt: string; fallback: ReactNode; onSize?: (w: number, h: number) => void }) {
   const { ipfsGateway } = useAppConfig();
   const list = useMemo(() => imageCandidates(src, ipfsGateway), [src, ipfsGateway]);
   const [i, setI] = useState(0);
@@ -132,7 +134,7 @@ export function SmartImage({ src, alt, fallback }: { src: string; alt: string; f
           loop
           playsInline
           preload="metadata"
-          onLoadedData={() => setState('ok')}
+          onLoadedData={(e) => { setState('ok'); onSize?.(e.currentTarget.videoWidth, e.currentTarget.videoHeight); }}
           onError={next}
           style={hidden}
         />
@@ -145,7 +147,7 @@ export function SmartImage({ src, alt, fallback }: { src: string; alt: string; f
           alt={alt}
           loading="lazy"
           decoding="async"
-          onLoad={() => setState('ok')}
+          onLoad={(e) => { setState('ok'); onSize?.(e.currentTarget.naturalWidth, e.currentTarget.naturalHeight); }}
           onError={next}
           style={hidden}
         />
@@ -169,10 +171,11 @@ export function TokenArt({ collection, token }: { collection: ColLike; token: To
   return generated;
 }
 
-export function CollectionAvatar({ collection }: { collection: ColLike }) {
+/** The collection logo. `onSize` reports the picture's real size once it has loaded (frames that fit the picture). */
+export function CollectionAvatar({ collection, onSize }: { collection: ColLike; onSize?: (w: number, h: number) => void }) {
   const generated =
-    collection.art_style === 'cow' ? <SmartImage src={GIWA_COWS.logo} alt={GIWA_COWS.name} fallback={<TileArt seed={collection.address} />} /> : <TileArt seed={collection.address} />;
-  if (collection.image_url) return <SmartImage src={collection.image_url} alt={collection.name || ''} fallback={generated} />;
+    collection.art_style === 'cow' ? <SmartImage src={GIWA_COWS.logo} alt={GIWA_COWS.name} fallback={<TileArt seed={collection.address} />} onSize={onSize} /> : <TileArt seed={collection.address} />;
+  if (collection.image_url) return <SmartImage src={collection.image_url} alt={collection.name || ''} fallback={generated} onSize={onSize} />;
   return generated;
 }
 

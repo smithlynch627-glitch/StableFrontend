@@ -57,6 +57,8 @@ export interface Collection {
   about?: string | null;
   about_image_url?: string | null;
   about_items?: { label: string; value: string }[];
+  /** Up to three extra images shown beside the logo on the mint page. */
+  gallery?: string[];
   floor_wei: string | null;
   best_offer_wei: string | null;
   volume_wei: string;

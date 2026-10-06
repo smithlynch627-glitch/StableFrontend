@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { encodeFunctionData, type Address } from 'viem';
@@ -13,7 +13,7 @@ import { useMoney } from '../lib/currency';
 import { useEthPrice, useNetworkFee } from '../lib/live';
 import { dateTime, eth, num, tokenLabel } from '../lib/format';
 import type { Collection, DropState, Eligibility, Phase, Token } from '../lib/types';
-import { CollectionAvatar, CowImage, TokenArt } from '../components/Art';
+import { CollectionAvatar, CowImage, SmartImage, TileArt, TokenArt } from '../components/Art';
 import { DropStatusPill, phasePrice } from '../components/DropCard';
 import { IconArrowLeft, IconArrowRight, IconCheck, IconClock, IconClose, IconLock, IconMinus, IconPlus } from '../components/Icons';
 import { ConfigChangedAlert } from '../components/PhaseChanges';
@@ -409,6 +409,51 @@ export default function DropPage() {
   return <DropView c={q.data.collection} drop={q.data.drop} refetch={q.refetch} />;
 }
 
+/**
+ * The collection picture, plus up to three extra images the creator added. The frame takes the shape of the
+ * picture being shown, so every picture is seen whole with nothing cropped and nothing around it. Extra images
+ * sit in a rail on the right of the picture (below it on phones); choosing one shows it in the frame.
+ */
+function DropGallery({ c, pill }: { c: Collection; pill: ReactNode }) {
+  const { t } = useI18n();
+  const extra = useMemo(() => (c.gallery || []).filter(Boolean).slice(0, 3), [c.gallery]);
+  const [picked, setPicked] = useState(0);
+  const [ratios, setRatios] = useState<Record<string, number>>({});
+  useEffect(() => { setPicked(0); setRatios({}); }, [c.address]);
+  const active = Math.min(picked, extra.length);
+  const keyOf = (k: number) => (k === 0 ? `main:${c.image_url || ''}` : extra[k - 1]);
+  // Width / height of a picture, once it has loaded (SVGs without a set size count as square).
+  const size = (k: number) => (w: number, h: number) => {
+    const r = w > 0 && h > 0 ? Math.min(4, Math.max(0.4, w / h)) : 1;
+    setRatios((x) => (x[keyOf(k)] === r ? x : { ...x, [keyOf(k)]: r }));
+  };
+  const ratio = ratios[keyOf(active)] ?? 1;
+  const label = (k: number) => (k === 0 ? t('drop.galleryMain') : t('drop.galleryN', { n: k + 1 }));
+  return (
+    <div className={`drop-gallery${extra.length ? ' has-rail' : ''}`} style={{ '--ar': String(ratio) } as React.CSSProperties}>
+      <div className="drop-media__main">
+        <div className={`drop-gallery__layer${active === 0 ? ' is-active' : ''}`}><CollectionAvatar collection={c} onSize={size(0)} /></div>
+        {extra.map((src, k) => (
+          <div key={src} className={`drop-gallery__layer${active === k + 1 ? ' is-active' : ''}`} aria-hidden={active !== k + 1}>
+            <SmartImage src={src} alt={`${c.name} · ${label(k + 1)}`} fallback={<TileArt seed={`${c.address}:g${k}`} />} onSize={size(k + 1)} />
+          </div>
+        ))}
+        <span className="drop-media__pill">{pill}</span>
+      </div>
+      {extra.length > 0 && (
+        <div className="drop-rail" role="tablist" aria-label={t('drop.gallery')}>
+          {[null, ...extra].map((src, k) => (
+            <button key={src ?? 'main'} type="button" role="tab" aria-selected={active === k} aria-label={label(k)} title={label(k)}
+              className={`drop-rail__thumb${active === k ? ' is-active' : ''}`} onClick={() => setPicked(k)}>
+              {src ? <SmartImage src={src} alt="" fallback={<TileArt seed={`${c.address}:g${k - 1}`} />} /> : <CollectionAvatar collection={c} />}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function DropView({ c, drop, refetch }: { c: Collection; drop: DropState; refetch: () => unknown }) {
   const { t, lang } = useI18n();
   const { isConnected, address } = useAccount();
@@ -428,10 +473,7 @@ function DropView({ c, drop, refetch }: { c: Collection; drop: DropState; refetc
       <div className="back-row"><BackButton fallback="/launchpad" /></div>
       <div className="drop-layout">
         <div className="drop-media">
-          <div className="drop-media__main">
-            <CollectionAvatar collection={c} />
-            <span className="drop-media__pill"><DropStatusPill d={d} /></span>
-          </div>
+          <DropGallery c={c} pill={<DropStatusPill d={d} />} />
           {c.art_style === 'cow' && (
             <div className="drop-media__strip" aria-label={t('drop.preview')}>
               {[1, 4, 8, 12].map((i) => <div key={i} style={{ position: 'relative' }}><CowImage index={i} /></div>)}

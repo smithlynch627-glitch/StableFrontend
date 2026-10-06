@@ -362,8 +362,11 @@ input[type='range'] { width: 100%; accent-color: var(--fg); }
 .drop-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 18px; }
 .drop-card { border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden; display: flex; flex-direction: column; transition: border-color 0.2s; background: var(--bg); }
 .drop-card:hover { border-color: var(--fg); }
-.drop-card__media { aspect-ratio: 16 / 10; position: relative; overflow: hidden; background: var(--surface); }
+.drop-card__media { aspect-ratio: 1; position: relative; overflow: hidden; background: var(--surface); }
 .drop-card__media .pill { position: absolute; top: 12px; left: 12px; z-index: 2; }
+/* The logo, whole (square logos fill the frame exactly). */
+.drop-card__media > img.art, .drop-card__media > video.art { object-fit: contain; transition: transform 0.5s var(--ease); }
+.drop-card:hover .drop-card__media > .art { transform: scale(1.03); }
 .drop-card__body { padding: 16px; display: grid; gap: 12px; }
 
 .col-card { border: 1px solid var(--line); border-radius: var(--r-card); overflow: hidden; background: var(--bg); transition: border-color 0.2s; }
@@ -1062,7 +1065,29 @@ main { overflow-x: clip; }
 .drop-page { animation: fade-up 0.35s var(--ease) both; }
 .drop-media__main { position: relative; box-shadow: 0 30px 60px -40px rgba(0, 0, 0, 0.5); }
 .drop-media__main > :first-child { width: 100%; height: 100%; }
-.drop-media__pill { position: absolute; top: 14px; left: 14px; z-index: 2; }
+/* Collection picture + extra images (rail on the right, under the picture on phones).
+   The frame takes the picture's own shape (--ar = width / height), so the picture is always whole:
+   nothing cropped, no bands beside it and no box around it. */
+.drop-gallery { --ar: 1; --maxh: calc(100vh - var(--header-h) - 130px); --rail: 0px; display: grid; gap: 12px; min-width: 0; width: 100%; margin-inline: auto; }
+.drop-gallery .drop-media__main { aspect-ratio: var(--ar); width: 100%; max-width: none; margin-inline: 0; border: 0; background: transparent; transition: aspect-ratio 0.35s var(--ease); }
+.drop-gallery__layer { position: absolute; inset: 0; opacity: 0; visibility: hidden; transition: opacity 0.35s var(--ease), visibility 0s 0.35s; }
+.drop-gallery__layer.is-active { opacity: 1; visibility: visible; transition: opacity 0.35s var(--ease); }
+.drop-gallery__layer > img.art, .drop-gallery__layer > video.art { object-fit: contain; }
+.drop-rail { display: grid; gap: 10px; align-content: start; }
+.drop-rail__thumb { position: relative; display: block; width: 100%; aspect-ratio: 1; padding: 0; border-radius: 14px; overflow: hidden; border: 1.5px solid var(--line); background: var(--surface); cursor: pointer; opacity: 0.72; transition: opacity 0.2s, border-color 0.2s, box-shadow 0.2s, transform 0.2s var(--ease); }
+.drop-rail__thumb:hover { opacity: 1; border-color: var(--fg); transform: translateY(-1px); }
+.drop-rail__thumb:focus-visible { outline: 2px solid var(--fg); outline-offset: 2px; opacity: 1; }
+.drop-rail__thumb.is-active { opacity: 1; border-color: var(--fg); box-shadow: 0 0 0 1.5px var(--fg); }
+@media (min-width: 861px) {
+  /* never taller than the window: the frame narrows instead */
+  .drop-gallery { max-width: calc(var(--maxh) * var(--ar) + var(--rail)); }
+  .drop-gallery.has-rail { --rail: calc(clamp(58px, 6vw, 86px) + 12px); grid-template-columns: minmax(0, 1fr) clamp(58px, 6vw, 86px); align-items: start; }
+}
+@media (max-width: 860px) {
+  .drop-page .drop-gallery { order: 1; max-width: calc(78vh * var(--ar)); }
+  .drop-page .drop-gallery .drop-media__main { order: 0; aspect-ratio: var(--ar); }
+  .drop-rail { grid-auto-flow: column; grid-auto-columns: 64px; justify-content: start; }
+}
 .drop-facts { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; }
 .drop-facts > span { display: grid; gap: 2px; padding: 12px; border-radius: 14px; background: var(--surface); min-width: 0; }
 .drop-facts strong { font-size: 15px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1911,6 +1936,23 @@ main { overflow-x: clip; }
 .meta-guide__head { display: grid; gap: 4px; justify-content: stretch; }
 
 .link-image { align-content: start; }
+/* One image link with a small preview (extra images, About picture) */
+.gallery-field { display: grid; gap: 10px; }
+.studio-block { display: grid; gap: 18px; }
+.studio-block__head { display: grid; gap: 4px; }
+.kv-row { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.6fr) auto; gap: 8px; align-items: center; }
+@media (max-width: 560px) { .kv-row { grid-template-columns: minmax(0, 1fr) auto; } .kv-row > .input:first-child { grid-column: 1 / -1; } }
+.about__gallery { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 8px; }
+.about__gallery > a { position: relative; display: block; aspect-ratio: 1; border-radius: 14px; overflow: hidden; border: 1px solid var(--line); background: var(--surface); transition: border-color 0.2s; }
+.about__gallery > a:hover { border-color: var(--fg); }
+.link-row { display: grid; grid-template-columns: 64px minmax(0, 1fr) auto; gap: 12px; align-items: start; }
+.link-row__thumb { position: relative; width: 64px; height: 64px; border-radius: 12px; overflow: hidden; border: 1.5px dashed var(--line); background: var(--surface); display: grid; place-items: center; color: var(--mute); transition: border-color 0.2s; }
+.link-row__thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; animation: fade-in 0.3s; }
+.link-row.is-ok .link-row__thumb { border-style: solid; border-color: var(--fg); }
+.link-row.is-bad .link-row__thumb, .link-row.is-format .link-row__thumb { border-color: var(--bad); }
+.link-row__main { display: grid; gap: 6px; min-width: 0; }
+.link-row > .icon-btn { margin-top: 4px; }
+@media (max-width: 560px) { .link-row { grid-template-columns: 52px minmax(0, 1fr) auto; gap: 8px; } .link-row__thumb { width: 52px; height: 52px; } }
 .link-image__box { position: relative; overflow: hidden; border-radius: 16px; border: 1.5px dashed var(--line); background: var(--surface); display: grid; place-items: center; transition: border-color 0.2s; }
 .link-image__box.is-square { width: 160px; aspect-ratio: 1; }
 .link-image__box.is-wide { width: 100%; aspect-ratio: 3 / 1; }
